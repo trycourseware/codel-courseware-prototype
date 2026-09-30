@@ -4,7 +4,7 @@
   if (document.body.dataset.page !== "reader") return;
   const { el, icon, $, $$ } = C;
   const u = C.me();
-  const slug = C.Q.get("c") && C.course(C.Q.get("c")) ? C.Q.get("c") : Object.keys(C.D.courses)[0];
+  const slug = C.course(C.Q.get("c")) ? C.Q.get("c") : Object.keys(C.D.courses)[0];
   const course = C.course(slug);
   const access = C.access(slug, u);                       // full | retro | preview | staff
   const canDownload = access === "full" || access === "staff";
@@ -24,7 +24,7 @@
   // ---------------------------------------------------------------- data helpers
   const blocks = {};                                     // id -> block
   const pageBlocks = (n) => (BOOK.pages[n - 1] && BOOK.pages[n - 1].blocks) || [];
-  const allowedPage = (n) => access !== "preview" || n <= 3 || (BOOK.pages[n - 1] && BOOK.pages[n - 1].unit === 1) || BOOK.pages[n - 1].kind === "end";
+  const allowedPage = (n) => { const P = BOOK.pages[n - 1]; if (!P) return false; return access !== "preview" || n <= 3 || P.unit === 1 || P.kind === "end"; };
   const unitOfPage = (n) => BOOK.pages[n - 1] && BOOK.pages[n - 1].unit;
   const pageLabel = (n) => {
     const P = BOOK.pages[n - 1];
@@ -137,7 +137,7 @@
       q.addEventListener("input", () => {
         const v = q.value.trim().toLowerCase(); res.replaceChildren();
         if (v.length < 2) return;
-        const hits = Object.values(blocks).filter((b) => (b.x || (b.items || []).join(" ")).toLowerCase().includes(v)).slice(0, 40);
+        const hits = Object.values(blocks).filter((b) => allowedPage(b.p) && (b.x || (b.items || []).join(" ")).toLowerCase().includes(v)).slice(0, 40);
         res.append(el("div", { class: "tiny muted pad0", text: `${hits.length} result${hits.length === 1 ? "" : "s"}` }));
         hits.forEach((b) => {
           const t = b.x || b.items.join(" "); const i = t.toLowerCase().indexOf(v);
@@ -230,13 +230,9 @@
     }
     stage.replaceChildren(el("div", { class: "pagewrap" }, art));
     if (io) io.disconnect();
-    io = new IntersectionObserver((ents) => {
-      const vis = $$(".pmark", art).filter((m) => m.getBoundingClientRect().top < innerHeight * 0.35);
-      const last = vis[vis.length - 1]; if (last) setPage(+last.dataset.p, false);
-    }, { threshold: [0, 1] });
-    $$(".pmark", art).forEach((m) => io.observe(m));
     stage.onscroll = null;
-    window.onscroll = () => { const vis = $$(".pmark", art).filter((m) => m.getBoundingClientRect().top < innerHeight * 0.35); const last = vis[vis.length - 1]; if (last) setPage(+last.dataset.p, false); };
+    let rafq = 0;
+    window.onscroll = () => { if (rafq) return; rafq = requestAnimationFrame(() => { rafq = 0; const vis = $$(".pmark", art).filter((m) => m.getBoundingClientRect().top < innerHeight * 0.35); const last = vis[vis.length - 1]; if (last && +last.dataset.p !== page) setPage(+last.dataset.p, false); }); };
   }
   function scrollToPage(n) { const m = document.getElementById("p-" + n) || (n === 1 ? document.getElementById("p-2") : null); if (m) window.scrollTo({ top: m.getBoundingClientRect().top + scrollY - 70, behavior: "auto" }); }
 
@@ -342,14 +338,15 @@
   window.addEventListener("resize", () => { if (BOOK && view === "flip") { const was = spreadMode; spreadMode = stage.clientWidth >= 900; if (was !== spreadMode) renderFlip(); else fitBook(stage.querySelector(".fbook")); } });
 
   // ---------------------------------------------------------------- navigation & state
+  let savedPage = null;
   function setPage(n, scroll = true) {
     page = Math.max(1, Math.min(BOOK.npages, n));
     slider.value = page;
     pgInfo.textContent = `Page ${page} of ${BOOK.npages}`;
     $("#rsub").textContent = `${course.code} · ${pageLabel(page)}`;
-    bmBtn.setAttribute("aria-pressed", String(isBm(page)));
-    bmBtn.classList.toggle("on", isBm(page));
-    if (u) {
+    const bp = flipBmPage(); bmBtn.setAttribute("aria-pressed", String(isBm(bp))); bmBtn.classList.toggle("on", isBm(bp));
+    if (u && savedPage !== page) {
+      savedPage = page;
       const pos = ud.get("pos", {}); pos[slug] = page; ud.set("pos", pos);
       const pr = ud.get("prog", {}); const pct = Math.round(page / BOOK.npages * 100); if (pct > (pr[slug] || 0)) { pr[slug] = pct; ud.set("prog", pr); }
     }
@@ -410,13 +407,13 @@
     if (!u) return C.say("Sign in to write notes.");
     const ta = el("textarea", { class: "input ta", rows: 5, placeholder: "Write your note", "aria-label": "Note" }); ta.value = existing ? existing.text : "";
     const q = existing ? existing.full || existing.quote : sel?.text;
-    C.modal({ title: existing ? "Edit note" : `Add a note to page ${sel?.p || page}`, body: el("div", {}, q ? el("q", { class: "quote", text: q }) : null, ta),
+    C.modal({ title: existing ? "Edit note" : `Add a note to page ${sel?.p || flipBmPage()}`, body: el("div", {}, q ? el("q", { class: "quote", text: q }) : null, ta),
       actions: [{ label: "Cancel", cls: "ghost", id: null }, { label: "Save note", value: () => ta.value.trim() || (C.say("Write something first."), false) }] })
       .then((txt) => {
         if (!txt) return;
         const notes = list("notes");
         if (existing) { const n = notes.find((x) => x.id === existing.id); n.text = txt; n.upd = Date.now(); }
-        else notes.push({ id: C.uid("n"), p: sel?.p || page, bid: sel?.bid || null, off: sel ? sel.off : null, quote: sel ? sel.parts[0].text : null, full: sel?.text || null, text: txt, at: Date.now() });
+        else notes.push({ id: C.uid("n"), p: sel?.p || flipBmPage(), bid: sel?.bid || null, off: sel ? sel.off : null, quote: sel ? sel.parts[0].text : null, full: sel?.text || null, text: txt, at: Date.now() });
         save("notes", notes); C.say(existing ? "Note updated." : "Note saved."); refresh();
         if (panel.classList.contains("open") && curTab === "n") showTab("n");
       });
@@ -453,7 +450,10 @@
       let text = r.toString(); if (!text.trim()) continue;
       const pre = document.createRange(); pre.setStart(b, 0); pre.setEnd(r.startContainer, r.startOffset);
       const off = pre.toString().length + (text.length - text.trimStart().length); text = text.trim();
-      parts.push({ bid: b.dataset.bid, p: blocks[b.dataset.bid].p, off, text });
+      let disp = text;
+      if (b.tagName === "UL") disp = $$("li", b).filter((li) => range.intersectsNode(li)).map((li) => { const q = document.createRange(); q.selectNodeContents(li);
+        if (li.contains(r.startContainer)) q.setStart(r.startContainer, r.startOffset); if (li.contains(r.endContainer)) q.setEnd(r.endContainer, r.endOffset); return q.toString().trim(); }).filter(Boolean).join("; ");
+      parts.push({ bid: b.dataset.bid, p: blocks[b.dataset.bid].p, off, text, disp });
     }
     return parts;
   }
@@ -462,7 +462,8 @@
     const s = window.getSelection(); if (!s || s.isCollapsed || !s.rangeCount) return null;
     const range = s.getRangeAt(0); if (!stage.contains(range.commonAncestorContainer)) return null;
     const parts = blockParts(range); if (!parts.length) return null;
-    const text = parts.map((p) => p.text).join(" "); if (text.length < 2 || text.length > 1500) return null;
+    const text = parts.map((p) => p.disp || p.text).join(" "); if (text.length < 2) return null;
+    if (text.length > 1500) { C.say("That selection is too long. Select up to about 250 words."); return null; }
     return { parts, text, bid: parts[0].bid, p: parts[0].p, off: parts[0].off, rect: range.getBoundingClientRect() };
   }
   function openSelbar(s) {
@@ -475,8 +476,11 @@
   const closeSelbar = () => { selbar.classList.remove("open", "edit"); };
   const showSel = () => { const s = readSelection(); if (s) { pendingSel = s; openSelbar(s); } else if (!(pendingSel && pendingSel.existing)) closeSelbar(); };
   document.addEventListener("mouseup", () => setTimeout(showSel, 10));
+  document.addEventListener("keyup", (e) => { if (e.shiftKey || e.key === "Shift") setTimeout(showSel, 10); });
   document.addEventListener("touchend", () => setTimeout(showSel, 250));
-  document.addEventListener("selectionchange", () => { if (!window.getSelection().toString() && !(pendingSel && pendingSel.existing)) closeSelbar(); });
+  let barPress = false;
+  selbar.addEventListener("pointerdown", () => { barPress = true; setTimeout(() => (barPress = false), 800); });
+  document.addEventListener("selectionchange", () => { if (barPress) return; if (!window.getSelection().toString() && !(pendingSel && pendingSel.existing)) closeSelbar(); });
   const dismiss = (e) => { if (!selbar.contains(e.target) && pendingSel && pendingSel.existing) { pendingSel = null; closeSelbar(); } if (!tpop.contains(e.target) && !sizeBtn.contains(e.target)) tpop.classList.remove("open"); };
   document.addEventListener("mousedown", dismiss); document.addEventListener("touchstart", dismiss, { passive: true });
   // click an existing highlight to change its colour, bookmark it, attach a note, ask the AI or remove it

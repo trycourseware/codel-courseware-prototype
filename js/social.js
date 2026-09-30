@@ -28,7 +28,7 @@
     T.push({ id: "t-u1", unit: 1, title: "Unit 1: how should we use the learning outcomes?", by: a.id, at: t0 + 2 * DAY, posts: [
       post(a, t0 + 2 * DAY, "Please, are the learning outcomes in section 1.2 what the exam questions are based on? I want to plan my revision."),
       post(b, t0 + 2 * DAY + 5 * HOUR, "I think so. I rewrite each outcome as a question and answer it without looking at the book.", { helpful: [a.id] }),
-      ...(tutor ? [post(tutor, t0 + 3 * DAY, "Good question. Examination questions test the learning outcomes, so b’s approach is a sound one. Also practise the past questions for this course in the Past questions bank.", { official: true, helpful: [a.id, b.id] })] : [])] });
+      ...(tutor ? [post(tutor, t0 + 3 * DAY, `Good question. Examination questions test the learning outcomes, so ${b.n.split(" ")[0]}’s approach is a sound one. Also practise the past questions for this course in the Past questions bank.`, { official: true, helpful: [a.id, b.id] })] : [])] });
     T.push({ id: "t-u2", unit: 2, title: "Unit 2 activity: sharing our three questions", by: d.id, at: t0 + 6 * DAY, posts: [
       post(d, t0 + 6 * DAY, "Here are my three questions for the Unit 2 activity. 1) How do the key concepts connect to Unit 1? 2) Which principle is most useful in a rural school? 3) How would you explain it to a colleague?"),
       post(a, t0 + 7 * DAY, "For question 2, I think the worked example in section 2.4 shows it clearly. Anyone else?")] });
@@ -60,14 +60,14 @@
     const draw = () => {
       let ts = C.forum(slug).slice();
       if (unitSel.value !== "") ts = ts.filter((t) => String(t.unit) === unitSel.value);
-      const v = q.value.trim().toLowerCase(); if (v) ts = ts.filter((t) => t.title.toLowerCase().includes(v) || t.posts.some((p) => p.text.toLowerCase().includes(v)));
+      const v = q.value.trim().toLowerCase(); if (v) ts = ts.filter((t) => t.title.toLowerCase().includes(v) || t.posts.some((p) => !p.hidden && p.text.toLowerCase().includes(v)));
       ts.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.posts[b.posts.length - 1].at - a.posts[a.posts.length - 1].at);
       list.replaceChildren(...(ts.length ? ts.map((t) => {
         const last = t.posts[t.posts.length - 1], answeredByTutor = t.posts.some((p) => p.official);
         return el("a", { class: "trow", href: `forum.html?c=${slug}&t=${t.id}` }, av(t.by),
           el("div", { class: "tt" }, el("div", { class: "tl" }, t.pinned ? el("span", { class: "pill red", text: "Pinned" }) : null, t.locked ? el("span", { class: "pill grey", text: "Locked" }) : null, el("b", { text: t.title })),
             el("div", { class: "tiny muted", text: `${t.unit ? "Unit " + t.unit : "General"} · started by ${who(t.by).n} · last post ${C.ago(last.at)}` })),
-          el("div", { class: "tm" }, el("span", { class: "pill grey" }, icon("chat", "i sm"), String(t.posts.length - 1)), answeredByTutor ? el("span", { class: "pill ok" }, icon("check", "i sm"), "Tutor answered") : null));
+          el("div", { class: "tm" }, el("span", { class: "pill grey" }, icon("chat", "i sm"), String(t.posts.slice(1).filter((p) => !p.hidden).length)), answeredByTutor ? el("span", { class: "pill ok" }, icon("check", "i sm"), "Tutor answered") : null));
       }) : [el("p", { class: "muted small pad", text: "No discussions match." })]));
     };
     unitSel.addEventListener("change", draw); q.addEventListener("input", draw); draw();
@@ -167,12 +167,12 @@
     const u = C.requireUser(), main = $("#main");
     if (C.isStaff(u)) { main.append(el("h1", { text: "Study groups" }), el("p", { text: "Study groups are private workspaces created by students. Staff do not see their content." })); return; }
     const all = C.groups(), e = C.enrol(u);
-    const mine = all.filter((g) => g.members.includes(u.id)), inv = all.filter((g) => g.invites.includes(u.id)), open = all.filter((g) => g.privacy === "open" && !g.members.includes(u.id) && (!g.course || e.current.includes(g.course)));
+    const mine = all.filter((g) => g.members.includes(u.id)), inv = all.filter((g) => g.invites.includes(u.id) && !g.members.includes(u.id)), open = all.filter((g) => g.privacy === "open" && !g.members.includes(u.id) && (!g.course || e.current.includes(g.course)));
     main.append(el("div", { class: "crumb" }, el("a", { href: "dashboard.html", text: "Home" }), " / Study groups"),
       el("div", { class: "btns between" }, el("h1", { text: "Study groups" }), el("button", { class: "btn", onclick: () => createGroup(u) }, icon("plus"), "Create a group")),
       el("p", { class: "muted", text: "Your own workspaces, separate from the course discussion: invite classmates, chat, keep shared notes, collect resources and plan meetings. Tutors do not see study-group content." }));
     if (inv.length) main.append(el("div", { class: "sech" }, el("h2", { text: "Invitations" })), el("div", { class: "stack" }, ...inv.map((g) => el("div", { class: "card pad grow" }, el("div", {}, el("h3", { text: g.name }), el("div", { class: "small muted", text: `Invited by ${who(g.owner).n} · ${g.members.length} members${g.course ? " · " + C.course(g.course).code : ""}` })),
-      el("div", { class: "btns" }, el("button", { class: "btn sm", onclick: () => { updGroup(g.id, (x) => { x.invites = x.invites.filter((i) => i !== u.id); x.members.push(u.id); x.chat.push({ id: C.uid("m"), by: "system", at: Date.now(), text: `${u.n} joined the group.` }); }); location.href = "group.html?g=" + g.id; } }, "Accept"),
+      el("div", { class: "btns" }, el("button", { class: "btn sm", onclick: () => { updGroup(g.id, (x) => { x.invites = x.invites.filter((i) => i !== u.id); if (x.members.includes(u.id)) return; x.members.push(u.id); x.chat.push({ id: C.uid("m"), by: "system", at: Date.now(), text: `${u.n} joined the group.` }); }); location.href = "group.html?g=" + g.id; } }, "Accept"),
         el("button", { class: "btn ghost sm", onclick: () => { updGroup(g.id, (x) => { x.invites = x.invites.filter((i) => i !== u.id); }); C.say("Invitation declined."); setTimeout(() => location.reload(), 400); } }, "Decline"))))));
     main.append(el("div", { class: "sech" }, el("h2", { text: "My groups" }), el("span", { class: "small muted", text: String(mine.length) })),
       mine.length ? el("div", { class: "grid g-progs" }, ...mine.map((g) => groupCard(g, u))) : el("p", { class: "muted small", text: "You are not in any group yet. Create one and invite classmates by index number." }));
@@ -185,7 +185,7 @@
       el("p", { class: "small", text: g.desc }),
       next ? el("div", { class: "small" }, icon("cal", "i sm"), ` ${next.title}, ${C.fmtTime(next.at)}`) : null,
       el("div", { class: "avs" }, ...g.members.slice(0, 6).map((m) => av(m)), g.members.length > 6 ? el("span", { class: "tiny muted", text: "+" + (g.members.length - 6) }) : null),
-      join ? el("button", { class: "btn sec sm", onclick: () => { updGroup(g.id, (x) => { x.members.push(u.id); x.chat.push({ id: C.uid("m"), by: "system", at: Date.now(), text: `${u.n} joined the group.` }); }); location.href = "group.html?g=" + g.id; } }, "Join group")
+      join ? el("button", { class: "btn sec sm", onclick: () => { updGroup(g.id, (x) => { x.invites = x.invites.filter((i) => i !== u.id); if (x.members.includes(u.id)) return; x.members.push(u.id); x.chat.push({ id: C.uid("m"), by: "system", at: Date.now(), text: `${u.n} joined the group.` }); }); location.href = "group.html?g=" + g.id; } }, "Join group")
         : el("a", { class: "btn sm", href: "group.html?g=" + g.id }, "Open workspace"));
   }
   function memberPicker(u, exclude = []) {
@@ -199,7 +199,7 @@
       const v = inp.value.trim().toLowerCase(); sug.replaceChildren(); if (v.length < 2) return;
       const hits = mates.filter((m) => m.id.includes(v) || m.n.toLowerCase().includes(v)).slice(0, 6);
       const exact = C.userById[v];
-      if (!hits.length && exact && exact.r === "s" && exact.id !== u.id) hits.push(exact);
+      if (!hits.length && exact && exact.r === "s" && exact.id !== u.id && !exclude.includes(exact.id)) hits.push(exact);
       sug.append(...hits.map((m) => el("button", { type: "button", class: "sg", onclick: () => add(m.id) }, el("b", { text: m.n }), el("span", { class: "tiny muted", text: ` ${m.id} · ${C.centre(m.c)} · ${C.prog(m.p).short} L${m.l}` }))));
       if (!hits.length) sug.append(el("div", { class: "tiny muted pad0", text: "No classmate matches. Type the full 10-digit index number to invite any student." }));
     });
@@ -252,7 +252,9 @@
       } else if (tab === "notes") {
         const ta = el("textarea", { class: "input ta notes-ed", rows: 16, "aria-label": "Shared notes" }); ta.value = g.notes.text;
         const status = el("span", { class: "tiny muted", text: g.notes.text ? `Last edited by ${g.notes.by === u.id ? "you" : who(g.notes.by).n}, ${C.ago(g.notes.at)}` : "Nobody has written anything yet." });
-        let tmr; ta.addEventListener("input", () => { status.textContent = "Saving…"; clearTimeout(tmr); tmr = setTimeout(() => { updGroup(gid, (x) => { x.notes = { text: ta.value, by: u.id, at: Date.now() }; }); status.textContent = "Saved · everyone in the group sees this"; }, 500); });
+        let tmr; const flush = () => { if (!tmr) return; clearTimeout(tmr); tmr = null; updGroup(gid, (x) => { x.notes = { text: ta.value, by: u.id, at: Date.now() }; }); status.textContent = "Saved · everyone in the group sees this"; };
+        ta.addEventListener("input", () => { status.textContent = "Saving…"; clearTimeout(tmr); tmr = setTimeout(flush, 500); });
+        ta.addEventListener("blur", flush); window.addEventListener("pagehide", flush);
         body.replaceChildren(el("div", { class: "card pad stack" }, el("div", { class: "btns between" }, el("h2", { text: "Shared notes" }), status), ta,
           el("div", { class: "btns" }, el("button", { class: "btn sec sm", onclick: () => { const a = el("a", { href: URL.createObjectURL(new Blob([ta.value], { type: "text/plain" })), download: g.name.replace(/\W+/g, "-") + "-notes.txt" }); document.body.append(a); a.click(); a.remove(); } }, icon("dl"), "Download notes"))));
       } else if (tab === "res") {
@@ -311,14 +313,18 @@
     }
     function ics(m) {
       const f = (t) => new Date(t).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+      const esc = (t) => String(t).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+      const fold = (line) => { const out = []; let cur = line; while (cur.length > 74) { out.push(cur.slice(0, 74)); cur = " " + cur.slice(74); } out.push(cur); return out.join("\r\n"); };
       const txt = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//CODeL Courseware prototype//EN", "BEGIN:VEVENT", "UID:" + m.id + "@codel-prototype", "DTSTAMP:" + f(Date.now()), "DTSTART:" + f(m.at), "DTEND:" + f(m.at + m.dur * 60000),
-        "SUMMARY:" + m.title.replace(/[,;]/g, " ") + " (" + g.name.replace(/[,;]/g, " ") + ")", "LOCATION:" + m.where.replace(/[,;]/g, " "), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+        "SUMMARY:" + esc(m.title + " (" + g.name + ")"), "LOCATION:" + esc(m.where), "END:VEVENT", "END:VCALENDAR"].map(fold).join("\r\n") + "\r\n";
       const a = el("a", { href: URL.createObjectURL(new Blob([txt], { type: "text/calendar" })), download: "study-group-meeting.ics" }); document.body.append(a); a.click(); a.remove(); C.say("Calendar file downloaded.");
     }
     async function invite() {
       const mp = memberPicker(u, [...g.members, ...g.invites]);
       const r = await C.modal({ title: "Invite classmates", body: mp, actions: [{ label: "Cancel", cls: "ghost", id: null }, { label: "Send invitations", value: () => { const ids = mp.read(); return ids.length ? ids : (C.say("Choose at least one classmate."), false); } }] });
-      if (!r) return; updGroup(gid, (x) => { x.invites.push(...r.filter((i) => !x.invites.includes(i) && !x.members.includes(i))); }); draw(); C.say(`${r.length} invitation${r.length > 1 ? "s" : ""} sent. They appear in the invitee’s notifications.`);
+      if (!r) return; let added = 0; updGroup(gid, (x) => { const fresh = r.filter((i) => !x.invites.includes(i) && !x.members.includes(i)); added = fresh.length; x.invites.push(...fresh); x.invitedAt = x.invitedAt || {}; fresh.forEach((i) => (x.invitedAt[i] = Date.now())); }); draw();
+      if (!added) return C.say("Everyone you chose is already a member or invited.");
+      C.say(`${added} invitation${added > 1 ? "s" : ""} sent. They appear in the invitee’s notifications.`);
     }
     async function leave() {
       if (!(await C.confirm("Leave this group?", "You can rejoin only if a member invites you again" + (g.privacy === "open" ? " or you join the open group." : "."), "Leave"))) return;

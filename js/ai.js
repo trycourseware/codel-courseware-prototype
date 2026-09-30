@@ -8,6 +8,7 @@
   const { el, icon, $, store: S } = C;
   const STOP = new Set("a an and are as at be by can do does for from has have how i in into is it its of on or that the their them then there these this to was what when where which who why will with you your about explain tell me please give show us our we should would could more most than also not no yes use using used unit page section book course".split(" "));
   const MODELS = [["claude-opus-5-5", "Claude Opus 5.5 (most capable)"], ["claude-sonnet-5-5", "Claude Sonnet 5.5 (faster)"], ["claude-haiku-4-5", "Claude Haiku 4.5 (fastest, lowest cost)"]];
+  const SHARED = {};                                     // conversation state shared by every mounted assistant
   const aiCfg = () => S.get("aicfg", { key: "", model: "claude-opus-5-5" });
   C.aiLive = () => !!aiCfg().key;
 
@@ -179,7 +180,7 @@
   // ------------------------------------------------------------------ live mode (Claude via the Anthropic SDK)
   let sdk = null;
   async function client() {
-    if (!sdk) sdk = await import("https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk/+esm");
+    if (!sdk) sdk = await import("https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.130.0/+esm");
     const Anthropic = sdk.default || sdk.Anthropic;
     return new Anthropic({ apiKey: aiCfg().key, dangerouslyAllowBrowser: true });
   }
@@ -206,7 +207,7 @@ Rules:
     const cfg = aiCfg(), cl = await client();
     const haiku = /haiku/.test(cfg.model);
     const params = {
-      model: cfg.model, max_tokens: 1500,
+      model: cfg.model, max_tokens: 6000,
       system: [{ type: "text", text: SYS(book) }, { type: "text", text: bookText(book, pqs), cache_control: { type: "ephemeral" } }],
       messages: [...history.slice(-8).map((m) => ({ role: m.role, content: m.api || m.text })), { role: "user", content: q }],
     };
@@ -215,7 +216,8 @@ Rules:
     stream.on("text", onText);
     const msg = await stream.finalMessage();
     if (msg.stop_reason === "refusal") throw new Error("The model declined to answer this question. Try rephrasing it.");
-    return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    const txt = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    return msg.stop_reason === "max_tokens" ? txt + "\n\n(The answer was cut short. Ask me to continue, or ask a narrower question.)" : txt;
   }
 
   // ------------------------------------------------------------------ rendering (no innerHTML: text is always escaped)
@@ -255,13 +257,14 @@ Rules:
     const acc = C.access(slug, u);
     if (acc !== "full" && acc !== "staff") { host.append(el("p", { class: "small muted", text: acc === "retro" ? "The AI assistant is not available during retrospective access." : "The AI assistant is available for courses you are registered for this semester." })); return; }
     if (u.r === "s" && !subscribed(u)) { host.append(subscribeBox(u, () => C.mountAssistant(host, opts), ctx)); return; }
-    const ud = C.ud(u), hk = "ai:" + slug;
-    let history = ud.get(hk, []);
+    const ud = C.ud(u), hk = "ai:" + slug, sk = u.id + "|" + slug;
+    const shared = SHARED[sk] || (SHARED[sk] = { history: ud.get(hk, []), busy: false, views: new Set() });
+    const history = shared.history;
     const log = el("div", { class: "ailog", "aria-live": "polite" });
     const ta = el("textarea", { class: "input ta", rows: compact ? 3 : 2, placeholder: "Ask about this course book", "aria-label": "Your question" });
     const send = el("button", { class: "btn", "aria-label": "Ask" }, icon("send"), compact ? null : "Ask");
     const mode = el("div", { class: "aimode tiny" }, C.aiLive() ? el("span", { class: "pill ok" }, icon("spark", "i sm"), "Live: " + (MODELS.find((m) => m[0] === aiCfg().model) || [0, aiCfg().model])[1]) : el("span", { class: "pill grey" }, icon("wifi", "i sm"), "Built-in assistant · works offline"),
-      el("a", { href: "ai.html#settings", text: "Settings" }), history.length ? el("button", { class: "linkbtn", onclick: () => { history = []; ud.set(hk, history); draw(); }, text: "Clear chat" }) : null);
+      el("a", { href: "ai.html#settings", text: "Settings" }), el("button", { class: "linkbtn", onclick: () => { if (shared.busy) return C.say("Wait for the current answer to finish."); history.length = 0; ud.set(hk, history); shared.views.forEach((f) => f()); }, text: "Clear chat" }));
     const chips = el("div", { class: "aichips" });
     const ctxBar = el("div", { class: "aictx" });
     const drawCtx = () => {
@@ -290,7 +293,9 @@ Rules:
     }
     async function ask(pqItem) {
       const q = pqItem ? `Help me with past question ${pqItem.id}: how should I answer it and what should I read?` : ta.value.trim();
-      if (!q) return; ta.value = ""; send.disabled = true;
+      if (!q) return;
+      if (shared.busy) return C.say("Please wait for the current answer to finish.");
+      shared.busy = true; ta.value = ""; send.disabled = true;
       const useCtx = pqItem ? null : ctx;
       const api = useCtx ? `Passage from the course book [p. ${useCtx.p}]: “${useCtx.text}”\n\nMy question about this passage: ${q}` : q;
       history.push({ role: "user", text: q, api, ctx: useCtx ? { p: useCtx.p, text: clip(useCtx.text, 200) } : null, at: Date.now() }); draw();
@@ -299,7 +304,7 @@ Rules:
         await ready;
         if (C.aiLive()) {
           pending.text = "";
-          const txt = await liveAnswer(book, pqs, history.slice(0, -2).filter((m) => !m.err), api, (d) => { pending.text += d; const last = log.lastElementChild; if (last) last.replaceWith(bubble(pending)); log.scrollTop = log.scrollHeight; });
+          const txt = await liveAnswer(book, pqs, history.slice(0, -2).filter((m) => !m.err && m.text), api, (d) => { pending.text += d; const last = log.lastElementChild; if (last) last.replaceWith(bubble(pending)); log.scrollTop = log.scrollHeight; });
           pending.text = txt;
           _slug = slug; const ix = index(book);
           pending.cites = [...txt.matchAll(/\[((?:Unit\s*(\d+)\s*·\s*)?(?:§\s*([\d.]+)\s*·\s*)?p\.\s*(\d+))\]/g)].map((m) => { const d = ix.docs.find((x) => x.p === +m[4] && (!m[3] || x.sec === m[3])); return { label: m[1], href: `reader.html?c=${slug}&p=${m[4]}` + (d ? "&b=" + d.id : "") }; })
@@ -313,8 +318,10 @@ Rules:
       } catch (e) {
         pending.text = (C.aiLive() ? "The live AI service could not answer: " + (e && e.message ? e.message : e) + ". Check the API key in AI settings, or switch back to the built-in assistant." : "Something went wrong: " + e.message); pending.err = true;
       }
-      history = history.slice(-40); ud.set(hk, history); draw(); send.disabled = false; if (!compact) ta.focus();
+      if (history.length > 40) history.splice(0, history.length - 40);
+      ud.set(hk, history); shared.busy = false; shared.views.forEach((f) => f()); send.disabled = false; if (!compact) ta.focus();
     }
+    shared.views.add(draw);
     send.addEventListener("click", () => ask());
     ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
     drawCtx(); draw();
@@ -352,7 +359,8 @@ Rules:
     const u = C.requireUser(), main = $("#main");
     const staff = C.isStaff(u);
     const mine = staff ? C.staffCourses(u) : C.enrol(u).current;
-    const slug = C.Q.get("c") && mine.includes(C.Q.get("c")) ? C.Q.get("c") : C.Q.get("c") && staff ? C.Q.get("c") : mine[0];
+    const qc = C.course(C.Q.get("c")) ? C.Q.get("c") : null;
+    const slug = qc && (mine.includes(qc) || staff) ? qc : mine[0];
     main.append(el("div", { class: "crumb" }, el("a", { href: staff ? "staff.html" : "dashboard.html", text: "Home" }), " / AI study assistant"));
     const sel = el("select", { class: "input", "aria-label": "Course" }, ...mine.map((s) => el("option", { value: s, text: `${C.course(s).code} ${C.course(s).title}`, selected: s === slug })));
     sel.addEventListener("change", () => (location.href = "ai.html?c=" + sel.value));

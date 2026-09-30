@@ -53,9 +53,9 @@
   });
 
   // ------------------------------------------------------------ session
-  C.me = () => { const s = S.get("session", null); return s && byId[s.id.toLowerCase()] ? byId[s.id.toLowerCase()] : null; };
+  C.me = () => { const s = S.get("session", null); return s && typeof s.id === "string" && byId[s.id.toLowerCase()] ? byId[s.id.toLowerCase()] : null; };
   C.signIn = (id, pw) => {
-    const u = byId[String(id).trim().toLowerCase()];
+    const u = byId[String(id).replace(/\s+/g, "").toLowerCase()];
     if (!u) return { ok: false, msg: "No account uses that index number or staff ID." };
     if (window.sha256(`codel:${u.id.toLowerCase()}:${pw}`) !== u.h) return { ok: false, msg: "The password is not correct. Check capital letters and try again." };
     S.set("session", { id: u.id, at: Date.now() });
@@ -65,7 +65,7 @@
   C.signInAs = (id) => { S.set("session", { id, at: Date.now() }); };
   C.signOut = () => { S.del("session"); location.href = "login.html"; };
   C.isStaff = (u) => u && u.r !== "s";
-  C.roleName = (u) => ({ s: "Student", t: "Tutor", c: "Course coordinator", sc: "Study-centre coordinator", h: "Helpdesk officer", a: "Administrator" })[u.r];
+  C.roleName = (u) => ({ s: "Student", t: "Tutor", c: "Course coordinator", sc: "Study-centre coordinator", h: "Helpdesk officer", a: "Administrator", w: "Course book author" })[u.r] || "Staff";
   C.requireUser = () => {
     const u = C.me();
     if (!u) { location.replace("login.html?next=" + encodeURIComponent(location.pathname.split("/").pop() + location.search)); throw new Error("redirect"); }
@@ -80,13 +80,14 @@
       set(path, v) { const o = S.get(key, {}); o[path] = v; S.set(key, o); },
       all() { return S.get(key, {}); },
       reset() { S.del(key); },
+      resetReading() { const o = S.get(key, {}); Object.keys(o).forEach((k) => { if (/^(notes|bm|hl|quiz|quizdraft|pqans|ai):/.test(k) || ["pos", "prog", "dl", "readerPrefs"].includes(k)) delete o[k]; }); S.set(key, o); },
     };
   };
   C.log = (u, what, extra = {}) => { const l = S.get("activity", []); l.push({ id: u.id, what, at: Date.now(), ...extra }); S.set("activity", l.slice(-2000)); };
 
   // ------------------------------------------------------------ enrolment & access
   C.prog = (slug) => D.programmes.find((p) => p.slug === slug);
-  C.course = (slug) => D.courses[slug];
+  C.course = (slug) => (typeof slug === "string" && Object.prototype.hasOwnProperty.call(D.courses, slug) ? D.courses[slug] : undefined);
   C.centre = (id) => { const c = D.centres.find((x) => x[0] === id); return c ? c[1] : ""; };
   C.enrol = (u) => {
     if (!u || u.r !== "s") return { current: [], retro: [] };
@@ -118,7 +119,7 @@
     return _rost[slug] || [];
   };
   C.tutorsFor = (slug) => USERS.filter((u) => (u.r === "t" || u.r === "c") && (u.cs || []).includes(slug));
-  C.staffCourses = (u) => (u.r === "t" || u.r === "c" ? u.cs : Object.keys(D.courses));
+  C.staffCourses = (u) => (["t", "c", "w"].includes(u.r) ? u.cs || [] : Object.keys(D.courses));
 
   // reading progress stored by the reader
   C.progress = (slug, u = C.me()) => (u ? C.ud(u).get("prog", {})[slug] || 0 : 0);
@@ -181,9 +182,9 @@
         .forEach((x) => push("n-exam-" + x.id, `Online exam open: ${x.title} (${C.course(x.course).code}), closes ${C.fmtTime(x.closes)}.`, "exams.html", x.opens));
       e.current.forEach((s) => (S.get("announce:" + s, []) || []).forEach((a) => push("n-ann-" + a.id, `${C.course(s).code}: ${a.text}`, `course-${s}.html`, a.at)));
       e.current.forEach((s) => { const ed = S.get("edition:" + s, null); if (ed) push("n-ed-" + s + ed.n, `${C.course(s).code}: edition ${ed.n} of the course book has been published.`, `course-${s}.html`, ed.at); });
-      (S.get("groups", []) || []).filter((g) => (g.invites || []).includes(u.id)).forEach((g) => push("n-inv-" + g.id, `You were invited to the study group “${g.name}”.`, `group.html?g=${g.id}`, g.created));
+      (S.get("groups", []) || []).filter((g) => (g.invites || []).includes(u.id)).forEach((g) => push("n-inv-" + g.id, `You were invited to the study group “${g.name}”.`, "groups.html", (g.invitedAt && g.invitedAt[u.id]) || g.created));
       Object.keys(D.courses).forEach((s) => (S.get("forum:" + s, []) || []).forEach((t) => {
-        if (t.by === u.id) t.posts.slice(1).filter((p) => p.by !== u.id).forEach((p) => push("n-rep-" + p.id, `${C.userById[p.by.toLowerCase()]?.n || "Someone"} replied to your post “${t.title}”.`, `forum.html?c=${s}&t=${t.id}`, p.at));
+        if (t.by === u.id) t.posts.slice(1).filter((p) => p.by !== u.id && !p.hidden).forEach((p) => push("n-rep-" + p.id, `${C.userById[p.by.toLowerCase()]?.n || "Someone"} replied to your post “${t.title}”.`, `forum.html?c=${s}&t=${t.id}`, p.at));
       }));
     } else {
       push("n-staff", "Welcome to the staff view of the CODeL Courseware prototype.", "staff.html", now - 2 * day);

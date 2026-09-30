@@ -12,7 +12,7 @@ HOW TO SIGN IN
   The sign-in page also has "Sample student" and "Sample tutor" buttons for quick demonstrations.
 
 WHAT IS INSIDE
-  1062 demo accounts (1000 students across 16 study centres, plus tutors, coordinators, study-centre
+  1074 demo accounts (1000 students across 16 study centres, plus tutors, coordinators, study-centre
   coordinators, helpdesk officers and administrators); 164 course books with canonical page numbers;
   quizzes; past questions; online exams; course discussions; study groups; an AI study assistant; staff views.
 

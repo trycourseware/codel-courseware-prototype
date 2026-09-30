@@ -5,12 +5,14 @@
   const DAY = 86400000;
   const who = (id) => C.userById[String(id).toLowerCase()] || { n: id, id };
   const tile = (l, v, s) => el("div", { class: "card pad tile" }, el("div", { class: "label", text: l }), el("div", { class: "v", text: v }), s ? el("div", { class: "small muted", text: s }) : null);
+  const csvCell = (v) => { let t = String(v ?? ""); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
   const download = (name, text, type = "text/plain") => { const a = el("a", { href: URL.createObjectURL(new Blob([text], { type })), download: name }); document.body.append(a); a.click(); a.remove(); };
 
   // ------------------------------------------------------------------ sign in
   function loginPage() {
     const box = $("#lbox"), u = C.me(), next = C.Q.get("next");
-    const dest = (x) => (next && !/^(https?:|\/\/|javascript:)/i.test(next) ? next : x.r === "s" ? "dashboard.html" : "staff.html");
+    const safeNext = next && /^[a-z0-9-]+\.html(\?[\w=&%.:-]*)?(#[\w-]*)?$/i.test(next) ? next : null;
+    const dest = (x) => safeNext || (x.r === "s" ? "dashboard.html" : "staff.html");
     if (u) {
       box.append(el("h2", { text: "You are signed in" }), el("p", { class: "muted small", text: `${u.n} · ${C.roleName(u)} · ${u.id}` }),
         el("div", { class: "btns mt" }, el("a", { class: "btn", href: dest(u), text: "Continue" }), el("button", { class: "btn sec", onclick: () => { S.del("session"); location.reload(); }, text: "Sign in as someone else" })));
@@ -81,7 +83,7 @@
     left.append(el("div", { class: "banner" }, icon("cal", "i lg"), el("div", {}, el("b", { text: "Semester 1, 2026/2027. " }), `You are registered for ${e.current.length} courses. Read online, download for offline study, or print a personal copy at your own cost.`)));
     if (cont) left.append(el("a", { class: "card pad contcard", href: `reader.html?c=${cont[0]}` }, icon("book", "i lg"), el("div", {}, el("div", { class: "label", text: "Continue reading" }), el("b", { text: `${C.course(cont[0]).code} ${C.course(cont[0]).title}` }), el("div", { class: "small muted", text: `Page ${cont[1]} · ${C.progress(cont[0], u)}% read` })), icon("chev", "i go")));
     left.append(el("div", { class: "sech" }, el("h2", { text: "Current semester" }), el("span", { class: "muted small", text: "Full access" })), el("div", { class: "grid g-courses" }, ...e.current.map((s) => courseCard(u, s))));
-    left.append(el("div", { class: "sech" }, el("h2", { text: "Previous semester" }), e.retro.length ? el("span", { class: "pill" }, icon("eye", "i sm"), "Read-only until 30 April 2027") : el("span", { class: "muted small", text: "None: this is the first level of your programme." })));
+    left.append(el("div", { class: "sech" }, el("h2", { text: "Earlier courses" }), e.retro.length ? el("span", { class: "pill" }, icon("eye", "i sm"), "Read-only until 30 April 2027") : el("span", { class: "muted small", text: "None: this is the first level of your programme." })));
     if (e.retro.length) left.append(el("div", { class: "grid g-courses" }, ...e.retro.map((s) => courseCard(u, s, true))));
 
     const side = el("aside", { class: "stack" });
@@ -166,6 +168,7 @@
   function printPage() {
     const u = C.requireUser(), main = $("#main"), slug = C.Q.get("c"), id = C.Q.get("id");
     const rec = slug && (C.ud(u).get("prints", {})[slug] || []).find((x) => x.id === id);
+    if (rec && !["full", "staff"].includes(C.access(slug, u))) { main.append(el("div", { class: "wrap" }, el("h1", { text: "Printing is not available" }), el("p", { text: "This course book is read-only for you now, so copies cannot be printed." }), el("a", { class: "btn", href: `reader.html?c=${slug}`, text: "Back to the book" }))); return; }
     if (!rec) { main.append(el("div", { class: "wrap" }, el("h1", { text: "Print copy not found" }), el("p", { text: "Create a print copy from the course book reader." }), el("a", { class: "btn", href: slug ? `reader.html?c=${slug}` : "dashboard.html", text: "Back" }))); return; }
     const c = C.course(slug), when = C.fmtTime(rec.at);
     main.append(el("div", { class: "printbar noprint" }, el("a", { class: "btn ghost sm", href: `reader.html?c=${slug}` }, icon("back"), "Back to the book"),
@@ -191,6 +194,9 @@
     if (!C.isStaff(u)) { location.replace("dashboard.html"); return; }
     main.append(el("div", { class: "crumb" }, "Staff home"), el("h1", { text: `Welcome, ${u.n.split(" ")[0]}` }), el("div", { class: "muted", text: `${C.roleName(u)} · ${u.id}${u.c ? " · " + C.centre(u.c) + " study centre" : ""}${u.prog ? " · " + C.prog(u.prog).name : ""}` }));
     if (u.r === "t" || u.r === "c") tutorView(u, main);
+    if (u.r === "w") main.append(el("div", { class: "sech" }, el("h2", { text: "My course books" })),
+      el("p", { class: "small muted", text: "As a course book author you prepare new editions. In the Moodle version you edit a draft edition and submit it to the course coordinator, who reviews and publishes it; students are notified." }),
+      el("div", { class: "clist" }, ...u.cs.map((s) => el("a", { href: `reader.html?c=${s}` }, el("span", { class: "cd", text: C.course(s).code }), el("span", { class: "tt", text: C.course(s).title }), icon("chev", "i go")))));
     if (u.r === "sc") centreView(u, main);
     if (u.r === "h") helpdeskView(u, main);
     if (u.r === "a") { main.append(el("div", { class: "tiles mt" }, tile("Students", C.users.filter((x) => x.r === "s").length, "demo accounts"), tile("Staff", C.users.filter((x) => x.r !== "s").length, "tutors, coordinators, support"), tile("Course books", Object.keys(C.D.courses).length), tile("Study centres", C.D.centres.length)),
@@ -260,7 +266,7 @@
     const last = S.get("activity", []).filter((a) => a.id === x.id).slice(-1)[0];
     return el("div", { class: "card pad" }, el("div", { class: "btns between" }, el("div", {}, el("h3", { text: x.n }), el("div", { class: "small muted", text: `${x.id} · ${C.roleName(x)}${x.c ? " · " + C.centre(x.c) : ""}` })),
       el("div", { class: "btns" }, el("button", { class: "btn sec sm", "data-toast": "In the live service this sends a password-reset link to the student’s registered phone and email.", text: "Send reset link" }),
-        el("button", { class: "btn ghost sm", onclick: async () => { if (await C.confirm("Clear this account’s reading data?", "Removes bookmarks, notes, quiz attempts and downloads stored on this device for " + x.n + ".", "Clear", "red")) { ud.reset(); C.say("Cleared."); } }, text: "Clear reading data" }))),
+        el("button", { class: "btn ghost sm", onclick: async () => { if (await C.confirm("Clear this account’s reading data?", "Removes bookmarks, highlights, notes, quiz attempts, downloads and AI chats stored on this device for " + x.n + ". The print record and AI subscription are kept.", "Clear", "red")) { ud.resetReading(); C.say("Cleared."); } }, text: "Clear reading data" }))),
       x.r === "s" ? el("div", { class: "small mt" }, el("div", { text: `${C.prog(x.p).name} · Level ${x.l}${e.option ? " · " + e.option : ""}` }),
         el("div", { text: `Current courses: ${e.current.map((s) => C.course(s).code).join(", ")}` }), el("div", { text: `Read-only courses: ${e.retro.map((s) => C.course(s).code).join(", ") || "none"}` }),
         el("div", { text: `Prints this semester: ${prints} · AI subscription: ${sub && sub.until > Date.now() ? "active until " + C.fmt(sub.until) : "none"} · last activity: ${last ? last.what + ", " + C.ago(last.at) : "none on this device"}` })) : el("div", { class: "small mt", text: x.cs ? `Courses: ${x.cs.map((s) => C.course(s).code).join(", ")}` : "" }));
@@ -300,7 +306,7 @@
       : el("p", { class: "small muted", text: "No activity yet." }));
     main.append(el("div", { class: "sech" }, el("h2", { text: "Data checks" })), el("div", { class: "card pad" }, el("p", { class: "small muted", text: `${C.D.dupes.length} course codes in the September 2026 list are used for more than one title and need confirmation:` }),
       el("div", { class: "pills mt" }, ...C.D.dupes.map((d) => el("a", { class: "pill red", href: `course-${d.toLowerCase()}.html`, text: d })))));
-    if (u.r === "a" || u.r === "h") main.append(el("div", { class: "sech" }, el("h2", { text: "User directory" }), el("button", { class: "btn sec sm", onclick: () => download("codel-demo-users.csv", ["id,name,role,programme,level,centre"].concat(C.users.map((x) => [x.id, `"${x.n}"`, C.roleName(x), x.p ? C.prog(x.p).short : "", x.l || "", x.c ? C.centre(x.c) : ""].join(","))).join("\n"), "text/csv") }, icon("dl"), "Export CSV (no passwords)")), directory(C.users));
+    if (u.r === "a" || u.r === "h") main.append(el("div", { class: "sech" }, el("h2", { text: "User directory" }), el("button", { class: "btn sec sm", onclick: () => download("codel-demo-users.csv", ["id,name,role,programme,level,centre"].concat(C.users.map((x) => [x.id, x.n, C.roleName(x), x.p ? C.prog(x.p).short : "", x.l || "", x.c ? C.centre(x.c) : ""].map(csvCell).join(","))).join("\n"), "text/csv") }, icon("dl"), "Export CSV (no passwords)")), directory(C.users));
   }
 
   // ------------------------------------------------------------------ profile
@@ -318,7 +324,7 @@
         el("div", { class: "card pad" }, el("h3", { text: "Reading" }), el("div", { class: "field mt" }, el("label", { text: "Default reading view" }), view),
           el("p", { class: "small muted mt", text: `You have ${bms} bookmarks, ${hls} highlights and ${notes} notes across your course books.` })),
         el("div", { class: "card pad" }, el("h3", { text: "Demo data on this device" }), el("p", { class: "small muted", text: "Everything in this prototype is stored in this browser only. Use these buttons to start a demonstration afresh." }),
-          el("div", { class: "btns mt" }, el("button", { class: "btn sec", onclick: async () => { if (await C.confirm("Reset my data?", "Removes your bookmarks, notes, highlights, quiz attempts, downloads, prints and AI chats on this device.", "Reset", "red")) { ud.reset(); C.say("Your data were reset."); setTimeout(() => location.reload(), 500); } } }, "Reset my data"),
+          el("div", { class: "btns mt" }, el("button", { class: "btn sec", onclick: async () => { if (await C.confirm("Reset my data?", "Removes your bookmarks, highlights, notes, quiz attempts, practice answers, downloads, reading positions and AI chats on this device. Your print record and AI subscription are kept.", "Reset", "red")) { ud.resetReading(); C.say("Your data were reset."); setTimeout(() => location.reload(), 500); } } }, "Reset my data"),
             el("button", { class: "btn ghost red-t", onclick: async () => { if (await C.confirm("Reset the whole demo?", "Removes all users’ data on this device: forums, groups, exams, announcements and activity. You will be signed out.", "Reset everything", "red")) { S.keys("").forEach((k) => S.del(k)); location.href = "login.html"; } } }, "Reset the whole demo")))),
         el("aside", { class: "stack" }, el("div", { class: "card pad" }, el("h3", { text: "Privacy" }), el("p", { class: "small muted", text: "In the live service, study data stay in the University’s Moodle, and AI requests go through a University server. Your name and index number appear on downloaded and printed copies." })),
           el("button", { class: "btn sec", onclick: () => C.signOut() }, icon("back"), "Sign out"))));

@@ -39,7 +39,8 @@ svg.i.lg{width:24px;height:24px}
 .mnav a{display:flex;align-items:center;gap:12px;color:#E4E4F6;text-decoration:none;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06);min-height:var(--tap)}
 .mnav a.on{color:#fff;font-weight:600;box-shadow:inset 4px 0 0 var(--scarlet)}
 @media(min-width:1240px){.top nav.links{display:flex}.menu-btn{display:none}.mnav{display:none!important}.brand img{height:34px}}
-@media(max-width:420px){.brand .nm{display:none}.brand .sep{display:none}}
+@media(max-width:600px){.brand .nm{display:none}.brand .sep{display:none}}
+.brand{min-width:0}
 
 /* ---------- layout ---------- */
 .wrap{max-width:1320px;margin:0 auto;padding:20px 16px 110px}

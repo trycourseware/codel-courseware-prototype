@@ -32,21 +32,21 @@
     return out;
   };
   C.quizById = (id) => {
-    const cq = C.customQuizzes().find((q) => q.id === id); if (cq) return { ...cq, kind: "Tutor quiz" };
+    const cq = C.customQuizzes().find((q) => q.id === id); if (cq) return cq.published || C.isStaff(C.me()) ? { ...cq, kind: cq.published ? "Tutor quiz" : "Draft" } : null;
     const m = id.match(/^(.+)-(orient|u1|struct)$/); if (!m || !C.course(m[1])) return null;
     return C.quizzesFor(m[1]).find((q) => q.id === id) || null;
   };
 
   // ------------------------------------------------------------------ marking and rendering
-  const num = (s) => { const v = parseFloat(String(s).replace(/[^0-9.\-]/g, "")); return isNaN(v) ? null : v; };
-  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+  const num = (s) => { const t = String(s).replace(/[\u2212\u2013]/g, "-").replace(/(\d),(?=\d{3}(\D|$))/g, "$1"); const m = t.match(/-?\d+(\.\d+)?|-?\.\d+/); return m ? parseFloat(m[0]) : null; };
+  const norm = (s) => String(s || "").normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
   C.qMark = (q, a) => {
     if (a == null || a === "" || (Array.isArray(a) && !a.length)) return 0;
     if (q.t === "mc") return a === q.a ? 1 : 0;
     if (q.t === "tf") return a === q.a ? 1 : 0;
     if (q.t === "multi") { const s = [...a].sort().join(), t = [...q.a].sort().join(); return s === t ? 1 : 0; }
     if (q.t === "num") { const v = num(a); return v != null && Math.abs(v - q.a) <= (q.tol || 0.001) ? 1 : 0; }
-    if (q.t === "text") return q.a.map(norm).includes(norm(a)) ? 1 : 0;
+    if (q.t === "text") return norm(a) && q.a.map(norm).filter(Boolean).includes(norm(a)) ? 1 : 0;
     return 0;
   };
   const answered = (a) => !(a == null || a === "" || (Array.isArray(a) && !a.length));
@@ -183,7 +183,7 @@
       st.n ? el("div", { class: "bar" }, el("i", { style: { width: st.best + "%", background: st.best >= 50 ? "var(--ok)" : "var(--scarlet)" } })) : null,
       el("div", { class: "btns" }, el("a", { class: "btn sm", href: `quiz.html?q=${encodeURIComponent(q.id)}` }, st.n ? "Retake" : staff ? "Preview" : "Start"),
         st.n ? el("a", { class: "btn sec sm", href: `quiz.html?q=${encodeURIComponent(q.id)}&review=1` }, "Review") : null,
-        staff && q.by ? el("button", { class: "btn ghost sm", onclick: () => toggleQuiz(q) }, q.published ? "Unpublish" : "Publish") : null));
+        staff && q.by && (q.by === u.id || u.r === "a" || (u.cs || []).includes(q.slug)) ? el("button", { class: "btn ghost sm", onclick: () => toggleQuiz(q) }, q.published ? "Unpublish" : "Publish") : null));
   }
   function toggleQuiz(q) { const all = C.customQuizzes(); const x = all.find((y) => y.id === q.id); x.published = !x.published; S.set("cquiz", all); C.say(x.published ? "Quiz published to students." : "Quiz moved back to drafts."); setTimeout(() => location.reload(), 500); }
   async function buildQuiz(mine) {
@@ -217,7 +217,7 @@
     main.append(el("div", { class: "crumb" }, el("a", { href: "quizzes.html", text: "Quizzes" }), " / ", el("a", { href: `quizzes.html?c=${quiz.slug}`, text: c.code }), " / " + quiz.title));
     if (acc === "preview" || acc === "retro") {
       main.append(el("h1", { text: quiz.title }), el("div", { class: "banner warn" }, icon("lock", "i lg"), el("div", { class: "small", text: acc === "retro" ? "Quizzes close when the semester ends. Your past attempts are kept below." : "This quiz is for students registered for the course this semester." })));
-      const st = C.quizStats(u, quiz.id); if (!st.n) return;
+      const last0 = attempts(u, quiz.id).slice(-1)[0]; if (last0) showResult(last0, true, true); return;
     }
     const draftKey = "quizdraft:" + quiz.id;
     const ud = C.ud(u);
@@ -254,7 +254,7 @@
       C.log(u, "quiz", { q: quiz.id, pct: at.pct });
       showResult(at, false);
     }
-    function showResult(at, reviewOnly) {
+    function showResult(at, reviewOnly, locked) {
       main.querySelectorAll(".qhead,.qgrid").forEach((x) => x.remove());
       const st2 = C.quizStats(u, quiz.id);
       const mm = Math.floor(at.secs / 60), ss = at.secs % 60;
@@ -263,7 +263,7 @@
         el("div", { class: "big", text: at.pct + "%" }),
         el("p", { text: `${at.score} of ${at.total} correct · time ${mm} min ${ss} s · ${reviewOnly ? "attempt on " + C.fmtTime(at.at) : "best score " + st2.best + "%"}` }),
         el("p", { class: "small", text: at.pct >= 80 ? "Excellent. You are ready for the next unit." : at.pct >= 50 ? "Good work. Review the explanations below for the questions you missed." : "Read the relevant section of the course book again, then retake the quiz." }),
-        el("div", { class: "btns" }, el("a", { class: "btn", href: `quiz.html?q=${encodeURIComponent(quiz.id)}` }, icon("sync"), "Retake"), el("a", { class: "btn sec", href: quiz.ref ? quiz.ref.href : `reader.html?c=${quiz.slug}` }, icon("book"), "Read: " + (quiz.ref ? quiz.ref.label : "course book")),
+        el("div", { class: "btns" }, locked ? null : el("a", { class: "btn", href: `quiz.html?q=${encodeURIComponent(quiz.id)}` }, icon("sync"), "Retake"), el("a", { class: "btn sec", href: quiz.ref ? quiz.ref.href : `reader.html?c=${quiz.slug}` }, icon("book"), "Read: " + (quiz.ref ? quiz.ref.label : "course book")),
           el("a", { class: "btn ghost", href: `quizzes.html?c=${quiz.slug}`, text: "All quizzes" }))),
         el("h2", { class: "mt", text: "Review your answers" }),
         ...quiz.qs.map((q, i) => C.qView(q, i, at.ans[i], () => { }, true)));
@@ -345,21 +345,32 @@
     const list = [...(slugs || Object.keys(C.D.courses)).flatMap(C.seededExams), ...stored.filter((x) => !slugs || slugs.includes(x.course))];
     return list.filter((x) => !(cfg[x.id] && cfg[x.id].deleted)).map((x) => ({ ...x, ...(cfg[x.id] || {}) }));
   };
-  C.examById = (id) => { const m = id.match(/^(mid|mock)-(.+)$/); return C.examList(m ? [m[2]] : undefined).find((x) => x.id === id) || null; };
+  C.examById = (id) => { const m = id.match(/^(mid|mock)-(.+)$/); if (m && !C.course(m[2])) return null; const x = C.examList(m ? [m[2]] : undefined).find((y) => y.id === id); return x && C.course(x.course) ? x : null; };
+  C.examN = (x) => (x.qs ? x.qs.length : Math.min(x.n, C.pool(x.course).length));
   C.examQs = (x, uid) => {
-    const qs = x.qs || C.shuffle(C.pool(x.course), x.id).slice(0, x.n);
+    const qs = x.qs || C.shuffle(C.pool(x.course), x.id).slice(0, C.examN(x));
     return C.shuffle(qs.map((q, i) => ({ ...q, _i: i })), x.id + ":" + uid);
   };
   C.examState = (x) => { const now = Date.now(); return now < x.opens ? "upcoming" : now > x.closes ? "closed" : "open"; };
   const subsKey = (id) => "examsubs:" + id;
+  C.examFinalize = (x, uid) => {
+    const all = S.get(subsKey(x.id), {}), s = all[uid]; if (!s || s.status !== "in") return s;
+    const end = Math.min(s.start + x.dur * MIN, x.closes); if (Date.now() < end) return s;
+    const qs = C.examQs(x, uid); s.score = qs.reduce((a, q) => a + C.qMark(q, (s.ans || {})[q._i]), 0); s.total = qs.length;
+    s.status = "submitted"; s.end = end; (s.events = s.events || []).push({ k: "auto-submit", at: end });
+    all[uid] = s; S.set(subsKey(x.id), all);
+    const act = S.get("examActive:" + uid, null); if (act && act.id === x.id) S.del("examActive:" + uid);
+    return s;
+  };
   C.examSubs = (x) => {
+    Object.keys(S.get(subsKey(x.id), {})).forEach((uid) => C.examFinalize(x, uid));
     const real = S.get(subsKey(x.id), {});
     if (!x.seeded || x.id.startsWith("mock")) return real;
     // simulated class submissions so staff views have data (clearly labelled in the UI)
     const sim = {}, r = C.rand("sim" + x.id), roster = C.roster(x.course);
     roster.forEach((s) => {
       if (real[s.id] || s.id === "9925010001" || r() > 0.62) return;
-      const total = x.n, score = Math.min(total, Math.max(0, Math.round(total * (0.35 + r() * 0.6))));
+      const total = C.examN(x), score = Math.min(total, Math.max(0, Math.round(total * (0.35 + r() * 0.6))));
       const st = x.opens + Math.floor(r() * (Math.min(Date.now(), x.closes) - x.opens - 30 * MIN));
       sim[s.id] = { start: st, end: st + Math.floor((6 + r() * 13) * MIN), score, total, status: "submitted", events: r() > 0.85 ? [{ k: "hidden", at: st + 5 * MIN }] : [], sim: true };
     });
@@ -381,7 +392,7 @@
     main.append(el("h1", { text: "Online exams and timed quizzes" }),
       el("p", { class: "muted", text: "Timed assessments set by your tutors. Each has an opening window, a time limit and one attempt. The AI assistant is switched off while an exam is in progress." }));
     const groups = { open: [], upcoming: [], done: [], closed: [] };
-    list.forEach((x) => { const s = S.get(subsKey(x.id), {})[u.id]; const st = C.examState(x); if (s && s.status === "submitted") groups.done.push([x, s]); else groups[st].push([x, s]); });
+    list.forEach((x) => { const s = C.examFinalize(x, u.id); const st = C.examState(x); if (s && s.status === "submitted") groups.done.push([x, s]); else groups[st].push([x, s]); });
     const sec = (t, arr, empty) => el("section", {}, el("div", { class: "sech" }, el("h2", { text: t }), el("span", { class: "small muted", text: String(arr.length) })),
       arr.length ? el("div", { class: "stack" }, ...arr.map(([x, s]) => examRow(u, x, s))) : el("p", { class: "small muted", text: empty }));
     main.append(sec("Open now", groups.open, "No exams are open at the moment."), sec("Upcoming", groups.upcoming, "Nothing scheduled."), sec("Submitted", groups.done, "You have not submitted any exams yet."), sec("Closed", groups.closed, "None."));
@@ -389,13 +400,13 @@
   function examRow(u, x, s) {
     const c = C.course(x.course), st = C.examState(x);
     let right;
-    if (s && s.status === "submitted") right = released(x, s) ? el("div", { class: "score" }, el("b", { text: Math.round(s.score / s.total * 100) + "%" }), el("span", { class: "tiny muted", text: `${s.score}/${s.total}` })) : el("span", { class: "pill grey", text: "Results after " + C.fmtTime(x.closes) });
+    if (s && s.status === "submitted") right = released(x, s) ? el("div", { class: "score" }, el("b", { text: Math.round(s.score / s.total * 100) + "%" }), el("span", { class: "tiny muted", text: `${s.score}/${s.total}` })) : el("span", { class: "pill grey", text: x.release === "manual" ? "Results when your tutor releases them" : "Results after " + C.fmtTime(x.closes) });
     else if (st === "open") right = el("a", { class: "btn" + (s && s.status === "in" ? " red" : ""), href: `exam.html?e=${encodeURIComponent(x.id)}` }, s && s.status === "in" ? "Resume" : "Start");
     else if (st === "upcoming") right = el("span", { class: "pill", text: "Opens " + C.fmtTime(x.opens) });
     else right = el("span", { class: "pill red", text: "Missed" });
     return el("div", { class: "card pad exrow" }, el("div", { class: "exi" }, icon("timer", "i lg")),
       el("div", { class: "ext" }, el("div", { class: "label", text: c.code }), el("h3", { text: x.title }),
-        el("div", { class: "small muted", text: `${x.dur} minutes · ${x.qs ? x.qs.length : x.n} questions · ${st === "upcoming" ? "window " + C.fmtTime(x.opens) + " to " + C.fmtTime(x.closes) : "closes " + C.fmtTime(x.closes)}` })),
+        el("div", { class: "small muted", text: `${x.dur} minutes · ${C.examN(x)} questions · ${st === "upcoming" ? "window " + C.fmtTime(x.opens) + " to " + C.fmtTime(x.closes) : "closes " + C.fmtTime(x.closes)}` })),
       el("div", { class: "exr" }, right));
   }
   function staffExams(u, main) {
@@ -415,12 +426,13 @@
             x.release === "manual" ? el("button", { class: "btn sm" + (x.released ? " sec" : ""), onclick: () => { setCfg(x.id, { released: !x.released }); draw(); C.say(x.released ? "Results hidden." : "Results released to students."); } }, x.released ? "Hide results" : "Release results") : null,
             el("a", { class: "btn ghost sm", href: `exam.html?e=${encodeURIComponent(x.id)}&preview=1` }, icon("eye"), "Preview"),
             el("button", { class: "btn ghost sm red-t", onclick: async () => { if (await C.confirm("Remove this exam?", "Students will no longer see it. Existing submissions are kept in the log.", "Remove", "red")) { setCfg(x.id, { deleted: true }); draw(); } } }, icon("trash"), "Remove"))),
-          el("div", { class: "small muted", text: `${C.fmtTime(x.opens)} to ${C.fmtTime(x.closes)} · ${x.dur} min · ${x.qs ? x.qs.length : x.n} questions · results ${x.release === "submit" ? "on submission" : x.release === "close" ? "after closing" : "when released"}` }),
+          el("div", { class: "small muted", text: `${C.fmtTime(x.opens)} to ${C.fmtTime(x.closes)} · ${x.dur} min · ${C.examN(x)} questions · results ${x.release === "submit" ? "on submission" : x.release === "close" ? "after closing" : "when released"}` }),
           el("div", { class: "kpis" }, kpi("Registered", roster.length), kpi("Submitted", done.length), kpi("Average", avg == null ? "–" : avg + "%"), kpi("Left the page", flagged)));
       }));
     };
     sel.addEventListener("change", draw); draw();
   }
+  const csvCell = (v) => { let t = String(v ?? ""); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; };
   const kpi = (l, v) => el("div", { class: "kpi" }, el("b", { text: v }), el("span", { text: l }));
   const setCfg = (id, patch) => { const cfg = S.get("examcfg", {}); cfg[id] = { ...(cfg[id] || {}), ...patch }; S.set("examcfg", cfg); };
   function showSubs(x) {
@@ -428,7 +440,7 @@
     const csv = () => {
       const lines = [["Index number", "Name", "Centre", "Started", "Submitted", "Minutes", "Score", "Total", "Left page"].join(",")].concat(rows.map(([id, s]) => {
         const st = C.userById[id.toLowerCase()] || { n: id, c: "" };
-        return [id, `"${st.n}"`, C.centre(st.c), new Date(s.start).toISOString(), s.end ? new Date(s.end).toISOString() : "", s.end ? Math.round((s.end - s.start) / MIN) : "", s.score ?? "", s.total ?? "", (s.events || []).filter((e) => e.k === "hidden").length].join(",");
+        return [id, st.n, C.centre(st.c), new Date(s.start).toISOString(), s.end ? new Date(s.end).toISOString() : "", s.end ? Math.round((s.end - s.start) / MIN) : "", s.score ?? "", s.total ?? "", (s.events || []).filter((e) => e.k === "hidden").length].map(csvCell).join(",");
       }));
       const a = el("a", { href: URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })), download: x.id + "-results.csv" }); document.body.append(a); a.click(); a.remove();
     };
@@ -469,13 +481,25 @@
     if (!x) { main.append(el("h1", { text: "Exam not found" }), el("a", { class: "btn", href: "exams.html", text: "Back to exams" })); return; }
     const c = C.course(x.course), preview = C.isStaff(u);
     const qs = C.examQs(x, u.id);
-    const subs = () => S.get(subsKey(x.id), {}), putSub = (s) => { const all = subs(); all[u.id] = s; S.set(subsKey(x.id), all); };
-    let sub = subs()[u.id];
+    let finished = false, stopped = false, unloading = false;
+    const subs = () => S.get(subsKey(x.id), {});
+    // never overwrite a submitted attempt (e.g. from a second tab); merge answers and events from other tabs
+    const putSub = (s) => {
+      const all = subs(), cur = all[u.id];
+      if (cur && cur.status === "submitted" && s.status !== "submitted") { closedElsewhere(cur); return false; }
+      if (cur && cur.status === "in" && s.status === "in") {
+        s.ans = { ...(cur.ans || {}), ...(s.ans || {}) };
+        const seen = new Set((s.events || []).map((e) => e.k + e.at)); s.events = [...(s.events || []), ...(cur.events || []).filter((e) => !seen.has(e.k + e.at))].sort((a, b) => a.at - b.at);
+      }
+      all[u.id] = s; S.set(subsKey(x.id), all); return true;
+    };
+    function closedElsewhere(rec) { if (finished) return; finished = true; run.stop && run.stop(); main.replaceChildren(el("div", { class: "crumb" }, el("a", { href: "exams.html", text: "Online exams" }), " / " + c.code)); done(rec); C.say("This exam was submitted in another window."); }
+    let sub = preview ? subs()[u.id] : C.examFinalize(x, u.id);
     main.append(el("div", { class: "crumb" }, el("a", { href: "exams.html", text: "Online exams" }), " / " + c.code));
     const st = C.examState(x);
     if (!preview && C.access(x.course, u) !== "full") { main.append(el("h1", { text: x.title }), el("p", { text: "This exam is for students registered for the course this semester." })); return; }
     if (sub && sub.status === "submitted") return done(sub);
-    if (!preview && st !== "open") { main.append(el("h1", { text: x.title }), el("p", { class: "muted", text: st === "upcoming" ? "This exam opens " + C.fmtTime(x.opens) + "." : "This exam closed " + C.fmtTime(x.closes) + "." }), el("a", { class: "btn sec", href: "exams.html", text: "Back to exams" })); return; }
+    if (!preview && st !== "open" && !(sub && sub.status === "in")) { main.append(el("h1", { text: x.title }), el("p", { class: "muted", text: st === "upcoming" ? "This exam opens " + C.fmtTime(x.opens) + "." : "This exam closed " + C.fmtTime(x.closes) + "." }), el("a", { class: "btn sec", href: "exams.html", text: "Back to exams" })); return; }
     if (!sub) {
       main.append(el("div", { class: "card pad exintro" }, el("div", { class: "label", text: c.code + " · " + c.title }), el("h1", { text: x.title }), x.instr ? el("p", { text: x.instr }) : null,
         el("ul", { class: "rules" }, el("li", { text: `Time limit: ${x.dur} minutes, starting when you press Start. The timer keeps running if you leave the page.` }),
@@ -516,19 +540,23 @@
         if (left < 2 * MIN && !warned) { warned = true; C.say("Two minutes left. Your answers are saved."); }
       };
       const iv = setInterval(tick, 500); tick();
-      const onHide = () => { if (document.hidden && !preview) { sub.events.push({ k: "hidden", at: Date.now() }); putSub(sub); } else if (!document.hidden) C.say("Leaving the exam page has been recorded."); };
-      document.addEventListener("visibilitychange", onHide);
-      window.onbeforeunload = () => "Your exam is in progress. Your answers are saved and the timer keeps running.";
-      run.stop = () => { clearInterval(iv); document.removeEventListener("visibilitychange", onHide); window.onbeforeunload = null; document.body.classList.remove("exam-on"); };
+      const onHide = () => { if (unloading || finished) return; if (document.hidden && !preview) { sub.events.push({ k: "hidden", at: Date.now() }); putSub(sub); } else if (!document.hidden) C.say("Leaving the exam page has been recorded."); };
+      const onStore = (e) => { if (e.key && e.key.endsWith(subsKey(x.id))) { const rec = subs()[u.id]; if (rec && rec.status === "submitted") closedElsewhere(rec); } };
+      document.addEventListener("visibilitychange", onHide); window.addEventListener("storage", onStore);
+      window.onbeforeunload = () => { unloading = true; setTimeout(() => (unloading = false), 1500); return "Your exam is in progress. Your answers are saved and the timer keeps running."; };
+      run.stop = () => { if (stopped) return; stopped = true; clearInterval(iv); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("storage", onStore); window.onbeforeunload = null; document.body.classList.remove("exam-on"); };
     }
     async function submit(auto) {
+      if (finished) return;
       if (!auto) {
         const left = qs.filter((q) => !answered(sub.ans[q._i])).length;
         if (!(await C.confirm("Submit your exam?", (left ? `${left} question${left > 1 ? "s are" : " is"} not answered. ` : "") + "You cannot change your answers after submitting.", "Submit", "red"))) return;
+        if (finished) return;
       }
+      finished = true;
       run.stop && run.stop();
       const score = qs.reduce((a, q) => a + C.qMark(q, sub.ans[q._i]), 0);
-      Object.assign(sub, { status: "submitted", end: Date.now(), score, total: qs.length }); sub.events.push({ k: auto ? "auto-submit" : "submit", at: Date.now() });
+      Object.assign(sub, { status: "submitted", end: auto ? Math.min(Date.now(), sub.start + x.dur * MIN, x.closes) : Date.now(), score, total: qs.length }); sub.events.push({ k: auto ? "auto-submit" : "submit", at: Date.now() });
       if (!preview) { putSub(sub); S.del("examActive:" + u.id); C.log(u, "exam-submit", { e: x.id }); }
       main.replaceChildren(el("div", { class: "crumb" }, el("a", { href: "exams.html", text: "Online exams" }), " / " + c.code));
       done(sub, auto);
@@ -541,9 +569,9 @@
         rel ? el("div", { class: "big", text: Math.round(s.score / s.total * 100) + "%" }) : el("p", { class: "small", text: x.release === "close" ? "Results are released after the exam closes on " + C.fmtTime(x.closes) + "." : "Your tutor will release the results." }),
         rel ? el("p", { text: `${s.score} of ${s.total} correct` }) : null,
         el("div", { class: "btns" }, el("a", { class: "btn", href: "exams.html", text: "Back to exams" }), el("a", { class: "btn sec", href: "dashboard.html", text: "Dashboard" }))));
-      if (rel && (x.release === "submit" || preview)) {
-        main.append(el("h2", { class: "mt", text: "Review" }), ...qs.map((q, i) => C.qView(q, i, s.ans[q._i], () => { }, true)));
-      }
+      if (rel && (preview || Date.now() > x.closes)) {
+        main.append(el("h2", { class: "mt", text: "Review" }), ...qs.map((q, i) => C.qView(q, i, (s.ans || {})[q._i], () => { }, true)));
+      } else if (rel) main.append(el("p", { class: "small muted mt", text: "The questions and correct answers are shown after the exam closes on " + C.fmtTime(x.closes) + "." }));
     }
   }
 
