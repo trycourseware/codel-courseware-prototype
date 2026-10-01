@@ -708,3 +708,5 @@ body.printpage{background:#E9E9EF}
 .ffoot,.ppage .pf{font-size:12px}
 .ffoot,.pmark{color:#6A737B}
 .rfoot input[type=range]{height:24px}
+/* contents page: each line is a comfortable tap target */
+.contents a{padding-top:4px;padding-bottom:4px;min-height:28px}
