@@ -42,14 +42,14 @@
   const banner = access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: "Retrospective access: read-only until 30 April 2027. " }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
     : access === "preview" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Preview. " }), u ? "You are not registered for this course this semester, so only Unit 1 is available." : "Sign in to read the full course book. Only Unit 1 is available in preview."))
       : null;
-  const back = el("a", { class: "tb", href: access === "retro" ? "dashboard.html" : `course-${slug}.html`, "aria-label": "Back" }, icon("back", "i lg"));
+  const back = el("a", { class: "tb", href: C.link(access === "retro" ? "home" : "course", { c: slug }), "aria-label": "Back" }, icon("back", "i lg"));
   const tocBtn = el("button", { class: "tb", "aria-label": "Contents, bookmarks and notes", "aria-expanded": "false" }, icon("list", "i lg"));
   const title = el("div", { class: "t" }, el("span", { text: course.title }), el("small", { id: "rsub", text: course.code }));
   const seg = el("div", { class: "vseg", role: "group", "aria-label": "Reading view" },
     el("button", { "data-v": "scroll", title: "Scroll view" }, icon("scroll"), el("span", { class: "txt", text: "Scroll" })),
     el("button", { "data-v": "flip", title: "Flip-book view" }, icon("book"), el("span", { class: "txt", text: "Flip" })));
   const bmBtn = el("button", { class: "tb", "aria-label": "Bookmark this page", "aria-pressed": "false" }, icon("mark"));
-  const noteBtn = el("button", { class: "tb", "aria-label": "Add a note to this page" }, icon("note"));
+  const noteBtn = el("button", { class: "tb note-tb", "aria-label": "Add a note to this page" }, icon("note"));
   const sizeBtn = el("button", { class: "tb hide-sm", "aria-label": "Text size" }, icon("text"));
   const darkBtn = el("button", { class: "tb hide-sm", "aria-label": "Night mode", "aria-pressed": String(!!prefs.dark) }, icon("sun"));
   const speakBtn = el("button", { class: "tb hide-sm", "aria-label": "Read aloud", "aria-pressed": "false" }, icon("head"));
@@ -84,6 +84,7 @@
 
   // ---------------------------------------------------------------- panel
   let curTab = "c", aiCtx = null, bmSort = "page", hlFilter = "";
+  let askPq = C.Q.get("pq");                            // a past question to ask the assistant about once (link from Past questions)
   function togglePanel(open) {
     panel.classList.toggle("open", open); tocBtn.setAttribute("aria-expanded", String(open));
     if (BOOK && view === "flip") setTimeout(renderFlip, 0);
@@ -149,7 +150,8 @@
     } else if (k === "a") {
       if (!canAI) { pbody.append(el("p", { class: "small muted pad", text: access === "retro" ? "The AI assistant is closed during retrospective access." : "The AI assistant is available to students registered for this course." })); return; }
       const box = el("div", { class: "aibox" }); pbody.append(box);
-      C.mountAssistant && C.mountAssistant(box, { slug, compact: true, context: aiCtx, onClearContext: () => { aiCtx = null; } });
+      C.mountAssistant && C.mountAssistant(box, { slug, compact: true, context: aiCtx, pq: askPq, onClearContext: () => { aiCtx = null; } });
+      askPq = null;
     }
   }
   function item(t, sub, onGo, locked, onDel) {
@@ -164,7 +166,7 @@
     if (b.t === "h") n = el("h3", { text: b.x });
     else if (b.t === "p") n = el("p", { text: b.x });
     else if (b.t === "ul") n = el("ul", {}, ...b.items.map((x) => el("li", { text: x })));
-    else n = el("div", { class: "callout" }, icon("quiz"), el("span", { text: b.x }), el("a", { href: `quizzes.html?c=${slug}`, class: "tiny", text: " Open quizzes" }));
+    else n = el("div", { class: "callout" }, icon("quiz"), el("span", { text: b.x }), el("a", { href: C.link("quizzes", { c: slug }), class: "tiny", text: " Open quizzes" }));
     n.dataset.bid = b.id; n.id = "b-" + b.id;
     return n;
   }
@@ -181,7 +183,7 @@
       el("li", {}, el("a", { href: "#", onclick: (e) => { e.preventDefault(); go(un.page); } }, el("span", { text: `Unit ${un.n}  ${un.title}` }), el("span", { class: "dots" }), el("span", { text: un.page }))))));
     else if (P.kind === "end") wrap.append(el("div", { class: "titlepage" }, el("h2", { text: "End of the course book" }),
       el("p", { text: "Take the self-checks in Quizzes, practise with past questions and join the course discussion." }),
-      el("div", { class: "btns" }, el("a", { class: "btn sec sm", href: `quizzes.html?c=${slug}`, text: "Quizzes" }), el("a", { class: "btn sec sm", href: `pastq.html?c=${slug}`, text: "Past questions" }))));
+      el("div", { class: "btns" }, el("a", { class: "btn sec sm", href: C.link("quizzes", { c: slug }), text: "Quizzes" }), el("a", { class: "btn sec sm", href: C.link("pastq", { c: slug }), text: "Past questions" }))));
     else {
       if (P.opener) { const un = BOOK.units[P.unit - 1]; wrap.append(el("div", { class: "u", text: `UNIT ${un.n}` }), el("h2", { text: un.title })); }
       P.blocks.forEach((id) => wrap.append(blockEl(blocks[id])));
@@ -226,7 +228,7 @@
       if (BOOK.pages[n - 1].kind === "cover") continue;
       const mark = el("div", { class: "pmark", id: "p-" + n, "data-p": n }, el("span", { text: "p. " + n }), isBm(n) ? icon("mark", "i sm ribbon") : null);
       art.append(mark, pageContent(n));
-      if (!allowedPage(n)) { art.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: u ? "The rest of the book is available to students registered for this course." : "Sign in to read the rest of the book." }), u ? null : el("a", { class: "btn sm", href: "login.html", text: "Sign in" }))); break; }
+      if (!allowedPage(n)) { art.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: u ? "The rest of the book is available to students registered for this course." : "Sign in to read the rest of the book." }), u ? null : el("a", { class: "btn sm", href: C.link("login"), text: "Sign in" }))); break; }
     }
     stage.replaceChildren(el("div", { class: "pagewrap" }, art));
     if (io) io.disconnect();
@@ -542,7 +544,8 @@
   more.addEventListener("click", () => C.modal({ title: "Reader options", body: el("div", { class: "stack" },
     sizeControl(),
     el("button", { class: "btn sec block", onclick: () => darkBtn.click() }, icon("sun"), "Night mode"),
-    el("button", { class: "btn sec block", onclick: () => speakBtn.click() }, icon("head"), "Read aloud")), actions: [{ label: "Done", id: 1 }] }));
+    el("button", { class: "btn sec block", onclick: () => speakBtn.click() }, icon("head"), "Read aloud"),
+    el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(() => noteBtn.click(), 50); } }, icon("note"), "Add a note to this page")), actions: [{ label: "Done", id: 1 }] }));
   dlBtn.addEventListener("click", () => {
     if (!canDownload) return C.say(access === "retro" ? "Not available during retrospective access: read online only." : "Downloading is available to registered students.");
     const dl = ud.get("dl", {}); dl[slug] = Date.now(); ud.set("dl", dl); C.log(u, "download", { c: slug });
@@ -568,10 +571,11 @@
         return units;
       } }] }).then((units) => {
       if (!units) return;
+      if (C.createPrint) return C.createPrint(slug, units).then((id) => { if (id) location.href = C.link("print", { c: slug, id }); });
       const id = "P-" + (C.hashNum(u.id + slug + Date.now()) % 60466176).toString(36).toUpperCase().padStart(5, "0");
       const pr = ud.get("prints", {}); (pr[slug] = pr[slug] || []).push({ id, units, at: Date.now() }); ud.set("prints", pr);
       const log = C.store.get("printlog", []); log.push({ id, user: u.id, c: slug, units, at: Date.now() }); C.store.set("printlog", log);
-      location.href = `print.html?c=${slug}&id=${id}`;
+      location.href = C.link("print", { c: slug, id });
     });
   }
 
@@ -593,6 +597,6 @@
     showTab("c");
     if (innerWidth >= 1000) togglePanel(true);
     if (C.Q.get("mode") === "print" && canPrint) printDialog();
-    if (C.Q.get("tab")) { togglePanel(true); showTab(C.Q.get("tab")); }
+    if (C.Q.get("tab") || askPq) { togglePanel(true); showTab(askPq ? "a" : C.Q.get("tab")); }
   });
 })();

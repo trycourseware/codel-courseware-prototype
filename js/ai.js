@@ -10,7 +10,8 @@
   const MODELS = [["claude-opus-5-5", "Claude Opus 5.5 (most capable)"], ["claude-sonnet-5-5", "Claude Sonnet 5.5 (faster)"], ["claude-haiku-4-5", "Claude Haiku 4.5 (fastest, lowest cost)"]];
   const SHARED = {};                                     // conversation state shared by every mounted assistant
   const aiCfg = () => S.get("aicfg", { key: "", model: "claude-opus-5-5" });
-  C.aiLive = () => !!aiCfg().key;
+  // In Moodle, C.aiServer (set by the Moodle adapter) sends questions to the university's server, which holds the key.
+  C.aiLive = () => (C.aiServer ? !!C.aiServer.on : !!aiCfg().key);
 
   // ------------------------------------------------------------------ index of a book
   const tok = (s) => (s.toLowerCase().normalize("NFKD").match(/[a-z0-9]+/g) || []).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
@@ -40,7 +41,7 @@
       return { d, s };
     }).filter((x) => x.s > 0.8).sort((a, b) => b.s - a.s).slice(0, k);
   }
-  const cite = (d) => ({ label: `Unit ${d.unit} · §${d.sec} · p. ${d.p}`, href: `reader.html?c=${IDX_slug(d)}&p=${d.p}&b=${d.id}` });
+  const cite = (d) => ({ label: `Unit ${d.unit} · §${d.sec} · p. ${d.p}`, href: C.link("reader", { c: IDX_slug(d), p: d.p, b: d.id }) });
   let _slug = ""; const IDX_slug = () => _slug;
 
   // ------------------------------------------------------------------ built-in (offline) answers
@@ -70,7 +71,7 @@
           const list = pqs.filter((p) => p.unit === d.unit);
           if (list.length) {
             say(`**How this could be examined.** Past questions linked to Unit ${d.unit}:`);
-            list.slice(0, 3).forEach((p) => { say(`- ${p.year}, Q${p.q} (${p.marks} marks): ${clip(p.text, 150)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: `pastq.html?c=${book.slug}` }); });
+            list.slice(0, 3).forEach((p) => { say(`- ${p.year}, Q${p.q} (${p.marks} marks): ${clip(p.text, 150)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: C.link("pastq", { c: book.slug }) }); });
             say("In an answer, state the idea from your passage in one sentence, explain it, then give an example. The marking guides award marks for each of those steps.");
           } else say(`There are no past questions linked to Unit ${d.unit} yet. Examiners usually ask you to explain an idea like this one and illustrate it with an example.`);
         } else if (/\b(examples?|illustrat\w*|apply|applies|application|practi[cs]e|real life)\b/.test(lq)) {
@@ -128,7 +129,7 @@
       const list = pqs.filter((p) => !um || p.unit === +um[1]);
       if (!list.length) { say(`There are no past questions linked to Unit ${um[1]} in the bank yet. Try another unit or open the Past questions page.`); return out; }
       say(`**${list.length} past question${list.length > 1 ? "s" : ""}${um ? " on Unit " + um[1] : " for this course"}:**`);
-      list.forEach((p) => { say(`- ${p.year}, ${p.sem} semester, Q${p.q} (${p.marks} marks, Unit ${p.unit}): ${clip(p.text, 150)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: `pastq.html?c=${book.slug}` }); });
+      list.forEach((p) => { say(`- ${p.year}, ${p.sem} semester, Q${p.q} (${p.marks} marks, Unit ${p.unit}): ${clip(p.text, 150)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: C.link("pastq", { c: book.slug }) }); });
       say("Ask me about any of them, for example “how should I answer " + list[0].id + "?”, and I will explain what the examiner wants and where to read.");
       return out;
     }
@@ -171,7 +172,7 @@
       say("Here is what your course book says:");
       hits.forEach((h) => say(`- **${h.d.stitle || "Unit " + h.d.unit}** (Unit ${h.d.unit}): ${clip(h.d.text, 240)} [${addCite(h.d)}]`));
     }
-    pqHits.forEach(({ p }) => { say(`**Related past question** (${p.year}, Q${p.q}, ${p.marks} marks): ${clip(p.text, 180)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: `pastq.html?c=${book.slug}` }); });
+    pqHits.forEach(({ p }) => { say(`**Related past question** (${p.year}, Q${p.q}, ${p.marks} marks): ${clip(p.text, 180)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: C.link("pastq", { c: book.slug }) }); });
     say("The built-in assistant quotes and points to the book. For fuller explanations in your own words, a live AI model can be connected in AI settings.");
     return out;
   }
@@ -227,8 +228,8 @@ Rules:
     while ((m = rx.exec(text))) {
       if (m.index > last) frag.push(text.slice(last, m.index));
       if (m[1]) frag.push(el("b", { text: m[1] }));
-      else if (m[2]) { const p = m[2].match(/p\.\s*(\d+)/)[1]; const c = (cites || []).find((x) => x.label === m[2]); frag.push(el("a", { class: "cite", href: c ? c.href : `reader.html?c=${slug}&p=${p}` }, icon("book", "i sm"), m[2])); }
-      else frag.push(el("a", { class: "cite pq", href: `pastq.html?c=${slug}` }, icon("archive", "i sm"), m[3]));
+      else if (m[2]) { const p = m[2].match(/p\.\s*(\d+)/)[1]; const c = (cites || []).find((x) => x.label === m[2]); frag.push(el("a", { class: "cite", href: c ? c.href : C.link("reader", { c: slug, p }) }, icon("book", "i sm"), m[2])); }
+      else frag.push(el("a", { class: "cite pq", href: C.link("pastq", { c: slug }) }, icon("archive", "i sm"), m[3]));
       last = rx.lastIndex;
     }
     if (last < text.length) frag.push(text.slice(last));
@@ -253,7 +254,7 @@ Rules:
     host.replaceChildren();
     if (!u) { host.append(el("p", { class: "small muted", text: "Sign in to use the AI study assistant." })); return; }
     const ex = C.examActive && C.examActive(u);
-    if (ex && !C.isStaff(u)) { host.append(el("div", { class: "banner warn" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "The AI assistant is switched off while your online exam is in progress. " }), el("a", { href: `exam.html?e=${ex.id}`, text: "Return to the exam" })))); return; }
+    if (ex && !C.isStaff(u)) { host.append(el("div", { class: "banner warn" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "The AI assistant is switched off while your online exam is in progress. " }), el("a", { href: C.link("exam", { e: ex.id }), text: "Return to the exam" })))); return; }
     const acc = C.access(slug, u);
     if (acc !== "full" && acc !== "staff") { host.append(el("p", { class: "small muted", text: acc === "retro" ? "The AI assistant is not available during retrospective access." : "The AI assistant is available for courses you are registered for this semester." })); return; }
     if (u.r === "s" && !subscribed(u)) { host.append(subscribeBox(u, () => C.mountAssistant(host, opts), ctx)); return; }
@@ -263,8 +264,8 @@ Rules:
     const log = el("div", { class: "ailog", "aria-live": "polite" });
     const ta = el("textarea", { class: "input ta", rows: compact ? 3 : 2, placeholder: "Ask about this course book", "aria-label": "Your question" });
     const send = el("button", { class: "btn", "aria-label": "Ask" }, icon("send"), compact ? null : "Ask");
-    const mode = el("div", { class: "aimode tiny" }, C.aiLive() ? el("span", { class: "pill ok" }, icon("spark", "i sm"), "Live: " + (MODELS.find((m) => m[0] === aiCfg().model) || [0, aiCfg().model])[1]) : el("span", { class: "pill grey" }, icon("wifi", "i sm"), "Built-in assistant · works offline"),
-      el("a", { href: "ai.html#settings", text: "Settings" }), el("button", { class: "linkbtn", onclick: () => { if (shared.busy) return C.say("Wait for the current answer to finish."); history.length = 0; ud.set(hk, history); shared.views.forEach((f) => f()); }, text: "Clear chat" }));
+    const mode = el("div", { class: "aimode tiny" }, C.aiLive() ? el("span", { class: "pill ok" }, icon("spark", "i sm"), "Live: " + (C.aiServer ? C.aiServer.label : (MODELS.find((m) => m[0] === aiCfg().model) || [0, aiCfg().model])[1])) : el("span", { class: "pill grey" }, icon("wifi", "i sm"), "Built-in assistant · works offline"),
+      C.link("aisettings") !== "#" ? el("a", { href: C.link("aisettings"), text: "Settings" }) : null, el("button", { class: "linkbtn", onclick: () => { if (shared.busy) return C.say("Wait for the current answer to finish."); history.length = 0; ud.set(hk, history); if (C.aiServer) C.aiServer.clear(); shared.views.forEach((f) => f()); }, text: "Clear chat" }));
     const chips = el("div", { class: "aichips" });
     const ctxBar = el("div", { class: "aictx" });
     const drawCtx = () => {
@@ -304,10 +305,12 @@ Rules:
         await ready;
         if (C.aiLive()) {
           pending.text = "";
-          const txt = await liveAnswer(book, pqs, history.slice(0, -2).filter((m) => !m.err && m.text), api, (d) => { pending.text += d; const last = log.lastElementChild; if (last) last.replaceWith(bubble(pending)); log.scrollTop = log.scrollHeight; });
+          const onText = (d) => { pending.text += d; const last = log.lastElementChild; if (last) last.replaceWith(bubble(pending)); log.scrollTop = log.scrollHeight; };
+          const txt = C.aiServer ? await C.aiServer.ask({ q, ctx: useCtx }, onText)
+            : await liveAnswer(book, pqs, history.slice(0, -2).filter((m) => !m.err && m.text), api, onText);
           pending.text = txt;
           _slug = slug; const ix = index(book);
-          pending.cites = [...txt.matchAll(/\[((?:Unit\s*(\d+)\s*·\s*)?(?:§\s*([\d.]+)\s*·\s*)?p\.\s*(\d+))\]/g)].map((m) => { const d = ix.docs.find((x) => x.p === +m[4] && (!m[3] || x.sec === m[3])); return { label: m[1], href: `reader.html?c=${slug}&p=${m[4]}` + (d ? "&b=" + d.id : "") }; })
+          pending.cites = [...txt.matchAll(/\[((?:Unit\s*(\d+)\s*·\s*)?(?:§\s*([\d.]+)\s*·\s*)?p\.\s*(\d+))\]/g)].map((m) => { const d = ix.docs.find((x) => x.p === +m[4] && (!m[3] || x.sec === m[3])); return { label: m[1], href: C.link("reader", { c: slug, p: m[4], b: d ? d.id : null }) }; })
             .filter((c, i, a) => a.findIndex((x) => x.label === c.label) === i);
         } else {
           await new Promise((r) => setTimeout(r, 350));
@@ -316,7 +319,7 @@ Rules:
         }
         C.log(u, "ai", { c: slug, live: C.aiLive() });
       } catch (e) {
-        pending.text = (C.aiLive() ? "The live AI service could not answer: " + (e && e.message ? e.message : e) + ". Check the API key in AI settings, or switch back to the built-in assistant." : "Something went wrong: " + e.message); pending.err = true;
+        pending.text = (C.aiServer ? (e && e.message ? e.message : String(e)) : C.aiLive() ? "The live AI service could not answer: " + (e && e.message ? e.message : e) + ". Check the API key in AI settings, or switch back to the built-in assistant." : "Something went wrong: " + e.message); pending.err = true;
       }
       if (history.length > 40) history.splice(0, history.length - 40);
       ud.set(hk, history); shared.busy = false; shared.views.forEach((f) => f()); send.disabled = false; if (!compact) ta.focus();

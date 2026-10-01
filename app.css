@@ -686,3 +686,25 @@ body.printpage{background:#E9E9EF}
 .aictx{display:flex;gap:8px;align-items:flex-start;background:#FFFBEA;border-left:4px solid #D99A00;border-radius:8px;padding:8px 10px;font-size:13.5px;color:#5C3D00}
 .aictx>div{flex:1;min-width:0}.aictx q{display:block;font-style:italic;margin-top:2px}
 .aiq-ctx{display:block;font-size:12px;font-style:italic;opacity:.85;border-left:2px solid rgba(255,255,255,.6);padding-left:6px;margin-bottom:4px}
+/* ---------- phones, touch and readable text (device audit) ---------- */
+.label,.pmark{font-size:12px}
+.cover small{font-size:12px;letter-spacing:.06em}.cover .cc2{font-size:12px}
+.mdate span,.tiny-pill,.uprow .d small,.li .tx span,.avatar.sm,.gav.sm,.person .avatar{font-size:12px}
+/* reader toolbar on narrow phones: the title moves to its own line and the buttons get a little narrower, so all of them fit */
+@media(max-width:480px){
+  .rbar{flex-wrap:wrap;gap:2px;padding:4px 6px}
+  .rbar .t{order:99;flex-basis:100%;padding:0 8px 6px}
+  .rbar .tb{min-width:40px;padding:0 6px}
+  .vseg button{padding:0 8px;height:36px}
+}
+/* folded foldables (about 280px): the note button moves into the "More options" menu */
+@media(max-width:340px){.rbar .tb.note-tb{display:none}}
+/* touch screens: a taller page slider and roomier small controls */
+@media(pointer:coarse){
+  .rfoot input[type=range]{height:32px}
+  summary{min-height:32px;display:list-item;padding-top:4px;padding-bottom:4px}
+}
+/* footers and page markers: 12px and a grey that meets the 4.5:1 contrast minimum */
+.ffoot,.ppage .pf{font-size:12px}
+.ffoot,.pmark{color:#6A737B}
+.rfoot input[type=range]{height:24px}

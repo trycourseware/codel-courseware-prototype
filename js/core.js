@@ -266,6 +266,13 @@
     bar.append(bS, bN); document.body.append(bar, menu);
   }
 
+  // links between pages; the Moodle reader replaces this with Moodle URLs
+  const qs = (o) => Object.entries(o).filter(([, v]) => v != null && v !== "").map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&");
+  C.link = (kind, p = {}) => ({
+    course: () => `course-${p.c}.html`, home: () => "dashboard.html", login: () => "login.html", aisettings: () => "ai.html#settings",
+    reader: () => "reader.html?" + qs({ c: p.c, p: p.p, b: p.b }), quizzes: () => "quizzes.html?" + qs({ c: p.c }), pastq: () => "pastq.html?" + qs({ c: p.c }),
+    print: () => "print.html?" + qs({ c: p.c, id: p.id }), exam: () => "exam.html?" + qs({ e: p.e }),
+  }[kind] || (() => "#"))();
   C.ready = (fn) => {
     const run = () => { try { fn(); } catch (e) { if (e && e.message === "redirect") return; console.error(e); } };
     document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", run) : run();
