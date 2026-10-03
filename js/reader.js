@@ -19,6 +19,8 @@
   const savePrefs = () => { if (u) ud.set("readerPrefs", prefs); };
   const clip = (t, n) => (t.length > n ? t.slice(0, n).replace(/\s+\S*$/, "") + "…" : t);
   const K = (k) => k + ":" + slug;                        // per-course keys inside the user record
+  // wording that differs between the prototype (defaults) and a real installation (C.text, set by the Moodle adapter)
+  const T = (k, d) => (C.text && k in C.text ? C.text[k] : d);
   let BOOK = null, page = 1, view = C.Q.get("view") || prefs.view, speaking = false;
 
   // ---------------------------------------------------------------- data helpers
@@ -39,7 +41,7 @@
   // ---------------------------------------------------------------- shell
   const root = el("div", { class: "reader-root" + (prefs.dark ? " night" : "") });
   document.body.prepend(root);
-  const banner = access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: "Retrospective access: read-only until 30 April 2027. " }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
+  const banner = access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
     : access === "preview" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Preview. " }), u ? "You are not registered for this course this semester, so only Unit 1 is available." : "Sign in to read the full course book. Only Unit 1 is available in preview."))
       : null;
   const back = el("a", { class: "tb", href: C.link(access === "retro" ? "home" : "course", { c: slug }), "aria-label": "Back" }, icon("back", "i lg"));
@@ -141,7 +143,7 @@
         const hits = Object.values(blocks).filter((b) => allowedPage(b.p) && (b.x || (b.items || []).join(" ")).toLowerCase().includes(v)).slice(0, 40);
         res.append(el("div", { class: "tiny muted pad0", text: `${hits.length} result${hits.length === 1 ? "" : "s"}` }));
         hits.forEach((b) => {
-          const t = b.x || b.items.join(" "); const i = t.toLowerCase().indexOf(v);
+          const t = b.x || (b.items || []).join(" "); const i = t.toLowerCase().indexOf(v);
           const snip = (i > 30 ? "…" : "") + t.slice(Math.max(0, i - 30), i + v.length + 50) + "…";
           res.append(item(snip, `p. ${b.p} · Unit ${b.id.match(/u(\d+)/)[1]}`, () => { go(b.p); flash(b.id); }, !allowedPage(b.p)));
         });
@@ -175,10 +177,10 @@
     if (!allowedPage(n)) { wrap.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: "This page is not available in preview." }))); return wrap; }
     if (P.kind === "cover") wrap.append(C.cover(course, "big"));
     else if (P.kind === "title") wrap.append(el("div", { class: "titlepage" },
-      el("div", { class: "label", text: "College for Distance and e-Learning" }), el("h2", { text: course.title }), el("p", { class: "muted", text: course.code + " · Edition " + BOOK.edition + " (sample)" }),
+      el("div", { class: "label", text: "College for Distance and e-Learning" }), el("h2", { text: course.title }), el("p", { class: "muted", text: course.code + " · Edition " + BOOK.edition + T("editionNote", " (sample)") }),
       el("p", { class: "small", text: "Offered in: " + [...new Set(course.offerings.map((o) => C.prog(o.p).short))].join(", ") }),
       el("p", { class: "small muted lic2", text: u ? `Licensed to ${u.n} · ${u.id}. For personal study only.` : "Preview copy." }),
-      el("p", { class: "tiny muted", text: "Sample text for the prototype. The approved course book appears here." })));
+      T("sampleNote", true) ? el("p", { class: "tiny muted", text: "Sample text for the prototype. The approved course book appears here." }) : null));
     else if (P.kind === "contents") wrap.append(el("h2", { text: "Contents" }), el("ol", { class: "contents" }, ...BOOK.units.map((un) =>
       el("li", {}, el("a", { href: "#", onclick: (e) => { e.preventDefault(); go(un.page); } }, el("span", { text: `Unit ${un.n}  ${un.title}` }), el("span", { class: "dots" }), el("span", { text: un.page }))))));
     else if (P.kind === "end") wrap.append(el("div", { class: "titlepage" }, el("h2", { text: "End of the course book" }),
@@ -535,7 +537,7 @@
     if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
     if (speaking) { speechSynthesis.cancel(); speaking = false; speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); return; }
     const ps = view === "flip" ? spreadPages(page).filter(Boolean) : [page, page + 1];
-    const text = ps.filter(allowedPage).flatMap((n) => pageBlocks(n).map((id) => blocks[id].x || blocks[id].items.join(". "))).join(" ");
+    const text = ps.filter(allowedPage).flatMap((n) => pageBlocks(n).map((id) => blocks[id].x || (blocks[id].items || []).join(". "))).join(" ");
     if (!text) return C.say("Nothing to read on this page.");
     const utt = new SpeechSynthesisUtterance(text); utt.lang = "en-GB"; utt.rate = 0.95;
     utt.onend = () => { speaking = false; speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); };
@@ -551,6 +553,7 @@
     const dl = ud.get("dl", {}); dl[slug] = Date.now(); ud.set("dl", dl); C.log(u, "download", { c: slug });
     C.say(`Downloaded for offline reading (${(BOOK.npages * 0.09).toFixed(1)} MB), watermarked with your index number.`);
   });
+  if (T("download", true) === false) dlBtn.style.display = "none";   // offline download not offered (Moodle)
   prBtn.addEventListener("click", () => (canPrint ? printDialog() : C.say(access === "retro" ? "Not available during retrospective access: read online only." : "Printing is available to registered students.")));
   function printDialog() {
     const used = (ud.get("prints", {})[slug] || []).length, quota = 2;
@@ -566,7 +569,7 @@
       el("div", { class: "thumb" }, ...Array.from({ length: 11 }, (_, i) => el("div", { class: "ln", style: { width: [40, 75, 100, 100, 85, 100, 70, 100, 100, 60, 90][i] + "%" } })),
         el("div", { class: "diag", text: `${u.n.toUpperCase()} · ${u.id} · PERSONAL STUDY COPY` }), el("div", { class: "ft" }, el("span", { text: `${u.n} · ${u.id} · ${C.fmt(Date.now())}` }), el("span", { text: "Copy ID on print" })))),
       actions: [{ label: "Cancel", cls: "ghost", id: null }, { label: "Create print-ready copy", value: () => {
-        if (used >= quota) { C.say("You have used your print quota for this book this semester."); return false; }
+        if (used >= quota && access !== "staff") { C.say("You have used your print quota for this book this semester."); return false; }
         const units = boxes.filter((b) => b.cb.checked).map((b) => b.un.n); if (!units.length) { C.say("Select at least one unit."); return false; }
         return units;
       } }] }).then((units) => {
@@ -585,7 +588,7 @@
     BOOK.units.forEach((un) => un.blocks.forEach((b) => (blocks[b.id] = b)));
     slider.max = BOOK.npages;
     if (u) { const bms = list("bm"); if (bms.some((b) => !b.id)) { bms.forEach((b) => (b.id = b.id || C.uid("b"))); save("bm", bms); } }
-    document.title = `${course.code} course book · CODeL Courseware prototype`;
+    document.title = `${course.code} course book · ${T("siteName", "CODeL Courseware prototype")}`;
     const qp = parseInt(C.Q.get("p"), 10), qu = parseInt(C.Q.get("u"), 10), qs = parseInt(C.Q.get("s"), 10);
     let target = null;
     if (qu && BOOK.units[qu - 1]) { const h = qs && blocks[`u${qu}s${qs}`]; target = h ? h.p : BOOK.units[qu - 1].page; }

@@ -24,7 +24,7 @@
       let sec = null;
       un.blocks.forEach((b) => {
         if (b.t === "h") { sec = b; secTitle[b.id] = b.x; return; }
-        const text = b.x || b.items.join(" ");
+        const text = b.x || (b.items || []).join(" ");
         const sn = sec ? sec.x.split(" ")[0] : un.n + ".1";
         docs.push({ id: b.id, unit: un.n, utitle: un.title, sec: sn, stitle: sec ? sec.x.replace(/^[\d.]+\s*/, "") : "", p: b.p, text, b, toks: tok(text + " " + (sec ? sec.x : "") + " " + un.title) });
       });
@@ -90,7 +90,7 @@
           if (around.length) say("**In context**, the same section also says: " + around.map((x) => `“${clip(x.text, 170)}” [${addCite(x)}]`).join(" "));
           const more = bm25(ix, q + " " + c.text, 5).filter((h) => h.d.id !== d.id && !(h.d.unit === d.unit && h.d.sec === d.sec)).slice(0, 2);
           if (more.length) say("**Elsewhere in the book:** " + more.map((h) => `“${clip(h.d.text, 150)}” [${addCite(h.d)}]`).join(" "));
-          const lo = ix.docs.find((x) => x.unit === d.unit && /Learning outcomes/i.test(x.stitle));
+          const lo = ix.docs.find((x) => x.unit === d.unit && /Learning outcomes/i.test(x.stitle) && x.b && x.b.items && x.b.items.length);
           if (lo) say(`**Why it matters:** it supports this learning outcome: ${lo.b.items[0]} [${addCite(lo)}]`);
           const best = (C.pool ? C.pool(book.slug) : []).map((qq) => ({ qq, s: overlap(qq.q + " " + (qq.x || "")) })).sort((a, b) => b.s - a.s)[0];
           if (best && best.s > 0) { say("**Check yourself** with this question:"); out.quiz = [best.qq]; }
@@ -108,7 +108,7 @@
       const parts = [...pqm.guide.matchAll(/\((\d+)\s*marks?\)|(\d+)\s*marks?/g)].length;
       say(`**How to plan your answer**\n- Underline the command words (explain, compare, discuss) and the number of points asked for.\n- Allocate your time by marks: about ${Math.max(1, Math.round(pqm.marks * 1.5))} minutes for ${pqm.marks} marks.\n- Give one clear point per paragraph, each with an example${book.subject === "business" ? " or a worked figure" : " from a Ghanaian classroom or community"}.\n- End with a short conclusion that answers the question directly.` + (parts > 1 ? `\n- The guide splits the marks into ${parts} parts; answer each part under its own heading.` : ""));
       const un = book.units[pqm.unit - 1];
-      if (un) { const d0 = ix.docs.find((d) => d.unit === un.n && /Key ideas/i.test(d.stitle)) || ix.docs.find((d) => d.unit === un.n); say(`**Where to read**: Unit ${un.n}, “${un.title}” [${addCite(d0)}].`); }
+      if (un) { const d0 = ix.docs.find((d) => d.unit === un.n && /Key ideas/i.test(d.stitle)) || ix.docs.find((d) => d.unit === un.n); say(`**Where to read**: Unit ${un.n}, “${un.title}”` + (d0 ? ` [${addCite(d0)}].` : ".")); }
       hits.forEach((h) => say(`Related passage: “${clip(h.d.text, 170)}” [${addCite(h.d)}]`));
       return out;
     }
@@ -127,7 +127,7 @@
     // 3a) past questions, optionally for one unit
     if (/past (exam )?questions?|exam questions?|past papers?/.test(lq)) {
       const list = pqs.filter((p) => !um || p.unit === +um[1]);
-      if (!list.length) { say(`There are no past questions linked to Unit ${um[1]} in the bank yet. Try another unit or open the Past questions page.`); return out; }
+      if (!list.length) { say(um ? `There are no past questions linked to Unit ${um[1]} in the bank yet. Try another unit or open the Past questions page.` : "There are no past questions for this course in the bank yet."); return out; }
       say(`**${list.length} past question${list.length > 1 ? "s" : ""}${um ? " on Unit " + um[1] : " for this course"}:**`);
       list.forEach((p) => { say(`- ${p.year}, ${p.sem} semester, Q${p.q} (${p.marks} marks, Unit ${p.unit}): ${clip(p.text, 150)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: C.link("pastq", { c: book.slug }) }); });
       say("Ask me about any of them, for example “how should I answer " + list[0].id + "?”, and I will explain what the examiner wants and where to read.");
@@ -138,7 +138,7 @@
       const un = book.units[+um[1] - 1];
       if (!un) { say(`This book has ${book.units.length} units.`); return out; }
       const ds = ix.docs.filter((d) => d.unit === un.n);
-      const lo = ds.find((d) => /Learning outcomes/i.test(d.stitle)), key = ds.filter((d) => /Key ideas/i.test(d.stitle)), sm = ds.find((d) => /Summary/i.test(d.stitle));
+      const lo = ds.find((d) => /Learning outcomes/i.test(d.stitle) && d.b && d.b.items && d.b.items.length), key = ds.filter((d) => /Key ideas/i.test(d.stitle)), sm = ds.find((d) => /Summary/i.test(d.stitle));
       say(`**Unit ${un.n}: ${un.title}** starts on page ${un.page}.`);
       if (lo) say(`**By the end of the unit you should be able to:**\n${lo.b.items.map((x) => "- " + x).join("\n")} [${addCite(lo)}]`);
       if (key.length) say("**Key ideas**\n" + key.map((d) => (d.b.items ? d.b.items.map((x) => "- " + x).join("\n") : "- " + clip(d.text, 220)) + ` [${addCite(d)}]`).join("\n"));
@@ -166,14 +166,15 @@
       say(`This passage is from **Unit ${d.unit}, section ${d.sec} ${d.stitle}** on page ${d.p} [${addCite(d)}].`);
       const around = ix.docs.filter((x) => x.unit === d.unit && x.sec === d.sec && x.id !== d.id);
       if (around.length) say("**In context**, the same section also says: " + around.map((x) => `“${clip(x.text, 160)}” [${addCite(x)}]`).join(" "));
-      const lo = ix.docs.find((x) => x.unit === d.unit && /Learning outcomes/i.test(x.stitle));
+      const lo = ix.docs.find((x) => x.unit === d.unit && /Learning outcomes/i.test(x.stitle) && x.b && x.b.items && x.b.items.length);
       if (lo) say(`It supports this learning outcome: ${lo.b.items[0]} [${addCite(lo)}]`);
     } else {
       say("Here is what your course book says:");
       hits.forEach((h) => say(`- **${h.d.stitle || "Unit " + h.d.unit}** (Unit ${h.d.unit}): ${clip(h.d.text, 240)} [${addCite(h.d)}]`));
     }
     pqHits.forEach(({ p }) => { say(`**Related past question** (${p.year}, Q${p.q}, ${p.marks} marks): ${clip(p.text, 180)} [PQ ${p.id}]`); out.cites.push({ label: "PQ " + p.id, href: C.link("pastq", { c: book.slug }) }); });
-    say("The built-in assistant quotes and points to the book. For fuller explanations in your own words, a live AI model can be connected in AI settings.");
+    const hint = C.text && "aiLiveHint" in C.text ? C.text.aiLiveHint : "The built-in assistant quotes and points to the book. For fuller explanations in your own words, a live AI model can be connected in AI settings.";
+    if (hint) say(hint);
     return out;
   }
   const clip = (s, n) => (s.length > n ? s.slice(0, n).replace(/\s+\S*$/, "") + "…" : s);
@@ -191,7 +192,7 @@
       lines.push(`\n=== Unit ${un.n}: ${un.title} (starts p. ${un.page}) ===`);
       un.blocks.forEach((b) => {
         if (b.t === "h") lines.push(`\n[p. ${b.p}] §${b.x}`);
-        else lines.push(`[p. ${b.p}] ${b.x || b.items.map((x) => "• " + x).join("\n")}`);
+        else lines.push(`[p. ${b.p}] ${b.x || (b.items || []).map((x) => "• " + x).join("\n")}`);
       });
     });
     lines.push("\n=== PAST QUESTIONS BANK ===");
@@ -257,7 +258,11 @@ Rules:
     if (ex && !C.isStaff(u)) { host.append(el("div", { class: "banner warn" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "The AI assistant is switched off while your online exam is in progress. " }), el("a", { href: C.link("exam", { e: ex.id }), text: "Return to the exam" })))); return; }
     const acc = C.access(slug, u);
     if (acc !== "full" && acc !== "staff") { host.append(el("p", { class: "small muted", text: acc === "retro" ? "The AI assistant is not available during retrospective access." : "The AI assistant is available for courses you are registered for this semester." })); return; }
-    if (u.r === "s" && !subscribed(u)) { host.append(subscribeBox(u, () => C.mountAssistant(host, opts), ctx)); return; }
+    if (u.r === "s" && !subscribed(u)) {
+      // a real installation has no subscription screen: access comes from the university (C.text.aiUnavailable)
+      if (C.text && C.text.aiUnavailable) { host.append(el("p", { class: "small muted", text: C.text.aiUnavailable })); return; }
+      host.append(subscribeBox(u, () => C.mountAssistant(host, opts), ctx)); return;
+    }
     const ud = C.ud(u), hk = "ai:" + slug, sk = u.id + "|" + slug;
     const shared = SHARED[sk] || (SHARED[sk] = { history: ud.get(hk, []), busy: false, views: new Set() });
     const history = shared.history;
