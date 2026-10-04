@@ -501,20 +501,23 @@
     if (sub && sub.status === "submitted") return done(sub);
     if (!preview && st !== "open" && !(sub && sub.status === "in")) { main.append(el("h1", { text: x.title }), el("p", { class: "muted", text: st === "upcoming" ? "This exam opens " + C.fmtTime(x.opens) + "." : "This exam closed " + C.fmtTime(x.closes) + "." }), el("a", { class: "btn sec", href: "exams.html", text: "Back to exams" })); return; }
     if (!sub) {
-      main.append(el("div", { class: "card pad exintro" }, el("div", { class: "label", text: c.code + " · " + c.title }), el("h1", { text: x.title }), x.instr ? el("p", { text: x.instr }) : null,
+      main.append(el("div", { class: "card pad exintro" + (preview ? " preview" : "") }, el("div", { class: "label", text: c.code + " · " + c.title }),
+        el("h1", { text: (preview ? "Preview: " : "") + x.title }), x.instr ? el("p", { text: x.instr }) : null,
         el("ul", { class: "rules" }, el("li", { text: `Time limit: ${x.dur} minutes, starting when you press Start. The timer keeps running if you leave the page.` }),
           el("li", { text: `${qs.length} questions. One attempt only. Answers are saved as you go.` }),
           el("li", { text: "The exam is submitted automatically when time runs out or the window closes (" + C.fmtTime(x.closes) + ")." }),
           el("li", { text: "The AI assistant, notes panel and forums are switched off while the exam is in progress." }),
           el("li", { text: "Leaving this page or switching apps is recorded and reported to your tutor." })),
-        preview ? el("div", { class: "banner" }, icon("eye", "i lg"), el("div", { class: "small", text: "Staff preview: nothing you answer is recorded." })) : null,
-        el("label", { class: "ck" }, el("input", { type: "checkbox", id: "agree" }), el("span", { text: "I will work on my own and follow the University’s examination regulations." })),
-        el("div", { class: "btns" }, el("button", { class: "btn red", id: "startx", onclick: () => {
-          if (!$("#agree").checked) return C.say("Tick the declaration to start.");
+        // staff only ever preview an exam: it looks as students see it, but no attempt, result or receipt is created
+        preview ? el("div", { class: "banner warn" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: "Staff preview. " }),
+          "You see the exam as students do. Nothing you answer is recorded: no attempt, no result and no receipt. Students' results are on the Online exams page.")) : null,
+        preview ? null : el("label", { class: "ck" }, el("input", { type: "checkbox", id: "agree" }), el("span", { text: "I will work on my own and follow the University’s examination regulations." })),
+        el("div", { class: "btns" }, el("button", { class: "btn " + (preview ? "sec" : "red"), id: "startx", onclick: () => {
+          if (!preview && !$("#agree").checked) return C.say("Tick the declaration to start.");
           sub = { start: Date.now(), ans: {}, status: "in", events: [{ k: "start", at: Date.now() }] };
           if (!preview) { putSub(sub); S.set("examActive:" + u.id, { id: x.id, at: Date.now() }); C.log(u, "exam-start", { e: x.id }); }
           run();
-        } }, icon("timer"), "Start the exam"), el("a", { class: "btn ghost", href: "exams.html", text: "Not now" }))));
+        } }, icon(preview ? "eye" : "timer"), preview ? "Start the preview" : "Start the exam"), el("a", { class: "btn ghost", href: "exams.html", text: "Not now" }))));
       return;
     }
     sub.events.push({ k: "resume", at: Date.now() }); putSub(sub); run();
@@ -524,12 +527,13 @@
       document.body.classList.add("exam-on");
       const end = Math.min(sub.start + x.dur * MIN, x.closes);
       const timer = el("div", { class: "xtimer", role: "timer", "aria-live": "off" });
-      const bar = el("div", { class: "xbar" }, el("div", { class: "xt" }, el("b", { text: x.title }), el("span", { class: "tiny", text: c.code + (preview ? " · preview" : "") })), timer,
-        el("button", { class: "btn red sm", onclick: () => submit(false) }, "Submit"));
+      const bar = el("div", { class: "xbar" }, el("div", { class: "xt" }, el("b", { text: (preview ? "Preview: " : "") + x.title }), el("span", { class: "tiny", text: c.code + (preview ? " · not recorded" : "") })), timer,
+        el("button", { class: "btn sm " + (preview ? "sec" : "red"), onclick: () => submit(false) }, preview ? "Finish preview" : "Submit"));
       const list = el("div", { class: "stack" });
-      main.append(bar, el("div", { class: "banner flat" }, icon("shield", "i lg"), el("div", { class: "small", text: "Exam in progress. Answers are saved automatically. Leaving the page is recorded." })), list);
+      main.append(bar, preview ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small", text: "Staff preview: nothing you answer is recorded." }))
+        : el("div", { class: "banner flat" }, icon("shield", "i lg"), el("div", { class: "small", text: "Exam in progress. Answers are saved automatically. Leaving the page is recorded." })), list);
       qs.forEach((q, i) => list.append(C.qView(q, i, sub.ans[q._i], (v) => { sub.ans[q._i] = v; sub.saved = Date.now(); if (!preview) putSub(sub); })));
-      list.append(el("div", { class: "btns" }, el("button", { class: "btn red", onclick: () => submit(false) }, icon("check"), "Submit my answers")));
+      list.append(el("div", { class: "btns" }, el("button", { class: "btn " + (preview ? "sec" : "red"), onclick: () => submit(false) }, icon("check"), preview ? "Finish the preview" : "Submit my answers")));
       let warned = false;
       const tick = () => {
         const left = end - Date.now();
@@ -550,7 +554,8 @@
       if (finished) return;
       if (!auto) {
         const left = qs.filter((q) => !answered(sub.ans[q._i])).length;
-        if (!(await C.confirm("Submit your exam?", (left ? `${left} question${left > 1 ? "s are" : " is"} not answered. ` : "") + "You cannot change your answers after submitting.", "Submit", "red"))) return;
+        if (preview ? !(await C.confirm("Finish the preview?", "Nothing is recorded. You will see the answers and the score a student would get.", "Finish"))
+          : !(await C.confirm("Submit your exam?", (left ? `${left} question${left > 1 ? "s are" : " is"} not answered. ` : "") + "You cannot change your answers after submitting.", "Submit", "red"))) return;
         if (finished) return;
       }
       finished = true;
@@ -563,6 +568,16 @@
     }
     function done(s, auto) {
       const rel = released(x, s) || preview;
+      if (preview) {
+        // a preview ends with the score a student would get and the answers: no "submitted", no time, no receipt
+        main.append(el("div", { class: "card pad result preview" }, el("div", { class: "label", text: c.code + " · " + x.title }),
+          el("h1", { text: "Preview finished" }),
+          el("p", { text: "Nothing was recorded: no attempt, no result and no receipt. Students' results are on the Online exams page." }),
+          el("div", { class: "big", text: Math.round(s.score / s.total * 100) + "%" }), el("p", { text: `A student with these answers would score ${s.score} of ${s.total}.` }),
+          el("div", { class: "btns" }, el("a", { class: "btn", href: "exams.html", text: "Back to exams" }), el("a", { class: "btn sec", href: "staff.html", text: "Staff home" }))));
+        main.append(el("h2", { class: "mt", text: "Answers" }), ...qs.map((q, i) => C.qView(q, i, (s.ans || {})[q._i], () => { }, true)));
+        return;
+      }
       main.append(el("div", { class: "card pad result " + (rel ? (s.score / s.total >= 0.5 ? "pass" : "fail") : "") }, el("div", { class: "label", text: c.code + " · " + x.title }),
         el("h1", { text: auto ? "Time is up: your exam was submitted" : "Exam submitted" }),
         el("p", { text: `Submitted ${C.fmtTime(s.end)} · receipt ${(C.hashNum(u.id + x.id + s.end) % 1e8).toString().padStart(8, "0")}` }),

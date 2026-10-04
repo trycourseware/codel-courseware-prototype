@@ -57,8 +57,9 @@
   const speakBtn = el("button", { class: "tb hide-sm", "aria-label": "Read aloud", "aria-pressed": "false" }, icon("head"));
   const dlBtn = el("button", { class: "tb lab" + (canDownload ? "" : " off"), "aria-label": "Download for offline reading" }, icon(canDownload ? "dl" : "lock"), el("span", { class: "txt", text: "Download" }));
   const prBtn = el("button", { class: "tb lab" + (canPrint ? "" : " off"), "aria-label": "Print a study copy" }, icon(canPrint ? "print" : "lock"), el("span", { class: "txt", text: "Print" }));
+  const fsBtn = el("button", { class: "tb hide-sm", "aria-label": "Full screen (F)", "aria-pressed": "false", title: "Full screen (F)" }, icon("full"));
   const more = el("button", { class: "tb show-sm", "aria-label": "More options" }, icon("more"));
-  const bar = el("div", { class: "rbar" }, back, tocBtn, title, seg, bmBtn, noteBtn, sizeBtn, darkBtn, speakBtn, dlBtn, prBtn, more);
+  const bar = el("div", { class: "rbar" }, back, tocBtn, title, seg, bmBtn, noteBtn, sizeBtn, darkBtn, speakBtn, fsBtn, dlBtn, prBtn, more);
 
   // side panel with tabs
   const tabs = [["c", "Contents"], ["b", "Bookmarks"], ["n", "Notes"], ["s", "Search"], ["a", "Ask AI"]];
@@ -241,7 +242,7 @@
   function scrollToPage(n) { const m = document.getElementById("p-" + n) || (n === 1 ? document.getElementById("p-2") : null); if (m) window.scrollTo({ top: m.getBoundingClientRect().top + scrollY - 70, behavior: "auto" }); }
 
   // ---------------------------------------------------------------- flip view
-  let spreadMode = false, anim = false;
+  let spreadMode = false, anim = false, full = false;       // full: full screen (see below)
   const PW = 460, PH = 640;
   function renderFlip() {
     stage.className = "rstage flip";
@@ -281,18 +282,26 @@
   }
   function fitBook(book) {
     if (!book) return;
-    const w = stage.clientWidth - (innerWidth < 600 ? 24 : 110), h = Math.max(320, innerHeight - (root.querySelector(".banner") ? 190 : 140));
+    // the space really available: from the top of the stage (below the bar and any banner) to the footer; in full screen
+    // the bars float over the page and hide while reading, so the whole screen counts
+    const top = full ? 0 : stage.getBoundingClientRect().top;
+    const bottom = full ? innerHeight : (foot.getBoundingClientRect().top || innerHeight);
+    const w = stage.clientWidth - (innerWidth < 600 ? 24 : 110), h = Math.max(320, bottom - top - (innerWidth < 700 ? 26 : 32));
     const bw = spreadMode ? PW * 2 : PW;
-    const sc = Math.min(w / bw, h / PH), ts = SCALES[prefs.ts];
+    // one page follows the screen's shape: taller on a tall phone (instead of leaving the screen half empty), shorter on a
+    // phone held sideways (instead of shrinking the page until the text cannot be read; the page then scrolls inside).
+    // The text of the printed page and its number stay the same.
+    const ph = spreadMode ? PH : Math.round(Math.min(Math.max(PH * 0.55, (bw * h) / w), PH * 1.45));
+    const sc = Math.min(w / bw, h / ph), ts = SCALES[prefs.ts];
     const sheet = book.querySelector(".fsheet");
-    sheet.style.width = bw + "px"; sheet.style.height = PH + "px";
+    sheet.style.width = bw + "px"; sheet.style.height = ph + "px"; sheet.style.setProperty("--ph", ph + "px");
     sheet.style.transform = `scale(${sc})`;
-    book.style.height = PH * sc + "px"; book.style.width = bw * sc + "px";
+    book.style.height = ph * sc + "px"; book.style.width = bw * sc + "px";
     // A printed page cannot reflow, so larger text stays on the same page and the page scrolls inside the book.
     $$(".fpage", sheet).forEach((pg) => {
       const pin = pg.querySelector(".fpin"); if (!pin) return;
       let fs = 15 * ts; pin.style.fontSize = fs + "px"; pin.classList.remove("scrolly");
-      if (ts <= 1) while (pin.scrollHeight > pin.clientHeight + 1 && fs > 10.5) { fs -= 0.5; pin.style.fontSize = fs + "px"; }
+      if (ts <= 1 && ph >= PH) while (pin.scrollHeight > pin.clientHeight + 1 && fs > 10.5) { fs -= 0.5; pin.style.fontSize = fs + "px"; }
       const over = pin.scrollHeight > pin.clientHeight + 1;
       pin.classList.toggle("scrolly", over); pg.classList.toggle("more", over && pin.scrollTop + pin.clientHeight < pin.scrollHeight - 4);
     });
@@ -340,6 +349,52 @@
     if (view === "flip" && (e.key === "ArrowLeft" || e.key === "PageUp")) { e.preventDefault(); turn(-1); }
   });
   window.addEventListener("resize", () => { if (BOOK && view === "flip") { const was = spreadMode; spreadMode = stage.clientWidth >= 900; if (was !== spreadMode) renderFlip(); else fitBook(stage.querySelector(".fbook")); } });
+
+  // ---------------------------------------------------------------- full screen
+  // The browser's full screen where it exists (computers, Android); on iPhones (no full screen for pages) a reading
+  // mode that does the same inside the browser. In both, the bar and the footer float over the book and slide away
+  // after a few seconds of reading; they come back when the mouse nears the top or bottom, on a tap in the middle of
+  // the page, or with the keyboard. F switches full screen on and off; Esc leaves it.
+  let idleT = null;
+  const canFull = !!(document.fullscreenEnabled && document.documentElement.requestFullscreen);
+  // the bars stay while something in them is in use (keyboard focus, not the focus a mouse click leaves behind)
+  const busy = () => panel.classList.contains("open") || document.querySelector(".ov.open") || bar.querySelector(":focus-visible") ||
+    foot.querySelector(":focus-visible") || selbar.classList.contains("open") || tpop.classList.contains("open");
+  function wake() {
+    root.classList.remove("idle"); clearTimeout(idleT);
+    if (full) idleT = setTimeout(() => { if (full && !busy()) root.classList.add("idle"); else if (full) wake(); }, 3000);
+  }
+  function setFull(on) {
+    if (full === on) return;
+    full = on; root.classList.toggle("immersive", on);
+    fsBtn.setAttribute("aria-pressed", String(on)); fsBtn.setAttribute("aria-label", on ? "Leave full screen (F)" : "Full screen (F)"); fsBtn.title = fsBtn.getAttribute("aria-label");
+    fsBtn.replaceChildren(icon(on ? "unfull" : "full"));
+    if (on) { if (panel.classList.contains("open")) togglePanel(false); wake(); }   // the whole width for the book
+    else { clearTimeout(idleT); root.classList.remove("idle"); }
+    if (BOOK && view === "flip") setTimeout(() => fitBook(stage.querySelector(".fbook")), 60);
+    C.say(on ? "Full screen: the bars hide while you read. Move to the top or bottom, or tap the middle of the page, to bring them back." : "Full screen off.");
+  }
+  function toggleFull() {
+    if (canFull) {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => setFull(false));
+      else document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => setFull(!full));
+    } else setFull(!full);
+  }
+  fsBtn.addEventListener("click", toggleFull);
+  document.addEventListener("fullscreenchange", () => setFull(!!document.fullscreenElement));
+  document.addEventListener("mousemove", (e) => { if (full && (e.clientY < 90 || e.clientY > innerHeight - 90)) wake(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input,textarea,select,[contenteditable]") || document.querySelector(".ov.open")) return;
+    if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); toggleFull(); return; }
+    if (full && (e.key === "Tab" || e.key === "Escape")) wake();
+    if (full && e.key === "Escape" && !canFull) setFull(false);   // the reading mode has no browser Esc
+  });
+  // a tap or click in the middle of the page (not on a word you are selecting, a link or a button) shows or hides the bars
+  stage.addEventListener("click", (e) => {
+    if (!full || e.target.closest("a,button,mark,input,textarea,.notecard") || window.getSelection().toString()) return;
+    if (view === "flip") { const pg = e.target.closest(".fpage"); if (pg) { const r = pg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width; if (x < 0.2 || x > 0.8) return; } }
+    if (root.classList.contains("idle")) wake(); else { clearTimeout(idleT); root.classList.add("idle"); }
+  });
 
   // ---------------------------------------------------------------- navigation & state
   let savedPage = null;
@@ -547,6 +602,7 @@
     sizeControl(),
     el("button", { class: "btn sec block", onclick: () => darkBtn.click() }, icon("sun"), "Night mode"),
     el("button", { class: "btn sec block", onclick: () => speakBtn.click() }, icon("head"), "Read aloud"),
+    el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(toggleFull, 50); } }, icon("full"), "Full screen"),
     el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(() => noteBtn.click(), 50); } }, icon("note"), "Add a note to this page")), actions: [{ label: "Done", id: 1 }] }));
   dlBtn.addEventListener("click", () => {
     if (!canDownload) return C.say(access === "retro" ? "Not available during retrospective access: read online only." : "Downloading is available to registered students.");

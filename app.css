@@ -710,3 +710,24 @@ body.printpage{background:#E9E9EF}
 .rfoot input[type=range]{height:24px}
 /* contents page: each line is a comfortable tap target */
 .contents a{padding-top:4px;padding-bottom:4px;min-height:28px}
+
+/* flip-book pages: the height can grow on tall screens (set by the reader for a single page) */
+.fpage,.leaf{height:var(--ph,640px)}
+/* full screen: the bar and the footer float over the book and slide away while reading (the reader adds .idle) */
+.reader-root.immersive>.banner{display:none}
+.reader-root.immersive .rbar{position:fixed;left:0;right:0;top:0;z-index:40;box-shadow:0 2px 10px rgba(20,20,60,.12);transition:transform .25s ease,opacity .25s ease}
+.reader-root.immersive .rfoot{transition:transform .25s ease,opacity .25s ease}
+.reader-root.immersive.idle .rbar{transform:translateY(-100%);opacity:0;pointer-events:none}
+.reader-root.immersive.idle .rfoot{transform:translateY(100%);opacity:0;pointer-events:none}
+.reader-root.immersive .rbody{min-height:100vh}
+.reader-root.immersive .rstage.flip{min-height:100vh;align-items:center;padding-top:22px;padding-bottom:22px}
+.reader-root.immersive .rstage.scroll .pagewrap{padding-top:70px}
+.reader-root .tb[aria-pressed=true]{color:var(--indigo)}
+@media (prefers-reduced-motion:reduce){.reader-root.immersive .rbar,.reader-root.immersive .rfoot{transition:none}}
+/* phones: no arrows over the page (they covered words); pages turn with a swipe, a tap near the page edge, the keyboard
+   or the arrows in the footer */
+@media(max-width:699px){.fbook .fnav{display:none}}
+/* the contents page in the flip book is scaled down on phones: taller rows keep its links easy to tap (24 px or more) */
+.fpage ol.contents{gap:0}
+.fpage ol.contents a{min-height:46px;align-items:center}
+.fpage ol.contents .dots{transform:none}
