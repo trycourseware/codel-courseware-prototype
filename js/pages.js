@@ -34,10 +34,23 @@
       el("div", { class: "field" }, el("label", { for: "pw", text: "Password" }), el("div", { class: "pwrow" }, pw, show)), err,
       el("button", { class: "btn block", type: "submit" }, icon("shield"), "Sign in"));
     const quick = (uid, label, sub) => el("button", { type: "button", class: "qbtn", onclick: () => { C.signInAs(uid); C.log(who(uid), "signin-demo"); location.href = dest(who(uid)); } }, el("b", { text: label }), el("span", { class: "tiny muted", text: sub }));
-    const t = C.users.find((x) => x.r === "t" && C.enrol(who("9925010001")).current.some((s) => x.cs.includes(s)));
+    // one demonstration account per role, all connected to the sample student's courses where the role has courses
+    // (signed in directly in this browser: no password is shown or needed)
+    const ama = who("9925010001"), mine = C.enrol(ama).current;
+    const pick = (r, test = () => true) => C.users.find((x) => x.r === r && test(x)) || C.users.find((x) => x.r === r);
+    const t = pick("t", (x) => mine.some((s) => (x.cs || []).includes(s)));
+    const demo = [
+      [ama, "Sample student", "Ama Owusu · B.Ed. Junior High L200"],
+      [t, "Sample tutor"],
+      [pick("c", (x) => mine.some((s) => (x.cs || []).includes(s))), "Course coordinator"],
+      [pick("w", (x) => mine.some((s) => (x.cs || []).includes(s))), "Course book author"],
+      [pick("sc", (x) => x.c === ama.c), "Study-centre coordinator"],
+      [pick("h"), "Helpdesk officer"],
+      [pick("a"), "Administrator"],
+    ].filter(([u]) => u);
     box.append(el("h2", { text: "Sign in" }), el("div", { class: "muted small", text: "College for Distance and e-Learning" }), el("div", { class: "mt" }, form),
-      el("div", { class: "or", text: "or explore without a password" }),
-      el("div", { class: "qgrid2" }, quick("9925010001", "Sample student", "Ama Owusu · B.Ed. Junior High L200"), t ? quick(t.id, "Sample tutor", t.n) : null),
+      el("div", { class: "or", text: "or explore without a password: choose a demonstration account" }),
+      el("div", { class: "qgrid2" }, ...demo.map(([u, label, sub]) => quick(u.id, label, sub || `${u.n} · ${u.id}`))),
       el("div", { class: "btns between mt" }, el("button", { type: "button", class: "btn ghost sm", "data-toast": "Password resets are handled by the UEW identity service. In this prototype the helpdesk can look up any account.", text: "Forgot password?" }),
         el("a", { class: "btn ghost sm", href: "help.html", text: "Need help?" })),
       el("div", { class: "login-warn", role: "note", text: "This is a prototype, not the official UEW sign-in. Use only the demonstration accounts; never enter your real UEW password here." }),

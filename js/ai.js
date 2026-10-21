@@ -140,15 +140,29 @@
       const ds = ix.docs.filter((d) => d.unit === un.n);
       const lo = ds.find((d) => /Learning outcomes/i.test(d.stitle) && d.b && d.b.items && d.b.items.length), key = ds.filter((d) => /Key ideas/i.test(d.stitle)), sm = ds.find((d) => /Summary/i.test(d.stitle));
       say(`**Unit ${un.n}: ${un.title}** starts on page ${un.page}.`);
+      if (!lo && !key.length) {
+        // a book without those sections (e.g. uploaded from Word): the opening of each section, then its summary if it has one
+        const firsts = [], seen = new Set(sm ? [sm.sec] : []);
+        ds.forEach((d) => { if (!seen.has(d.sec) && d.text.length > 30) { seen.add(d.sec); firsts.push(d); } });
+        if (firsts.length) say("**What the unit covers**\n" + firsts.map((d) => `- ${d.stitle ? "**" + d.stitle + "**: " : ""}${clip(d.text, 200)} [${addCite(d)}]`).join("\n"));
+      }
       if (lo) say(`**By the end of the unit you should be able to:**\n${lo.b.items.map((x) => "- " + x).join("\n")} [${addCite(lo)}]`);
       if (key.length) say("**Key ideas**\n" + key.map((d) => (d.b.items ? d.b.items.map((x) => "- " + x).join("\n") : "- " + clip(d.text, 220)) + ` [${addCite(d)}]`).join("\n"));
       if (sm) say(`**Summary**: ${clip(sm.text, 260)} [${addCite(sm)}]`);
       return out;
     }
     // 4) quiz me
-    if (/quiz me|test me|practice question|questions? (to|for) practi|check my understanding/.test(lq)) {
-      const pool = C.pool ? C.shuffle(C.pool(book.slug), "ai" + Date.now()).slice(0, 3) : [];
-      say("Here are three practice questions. Try each one, then open the answer.");
+    if (/quiz me|test me|(make|give|set|create)( me)? (a |some )?(quiz|questions?)|a quiz (on|about|for)|practice questions?|questions? (to|for) practi|check my understanding/.test(lq)) {
+      let pool = C.pool ? C.shuffle(C.pool(book.slug), "ai" + Date.now()).filter((x) => !um || !x.unit || x.unit === +um[1]).slice(0, 3) : [];
+      if (!pool.length) {
+        // no practice questions for this book yet: one question per section, answered from the book with the page
+        const secs = [], seen = new Set();
+        ix.docs.filter((d) => (!um || d.unit === +um[1]) && d.text.length > 60).forEach((d) => { if (!seen.has(d.sec)) { seen.add(d.sec); secs.push(d); } });
+        pool = C.shuffle ? C.shuffle(secs, "aiq" + Date.now()).slice(0, 3) : secs.slice(0, 3);
+        pool = pool.map((d) => { addCite(d); return { t: "text", q: `In your own words: what does the book say about “${d.stitle || d.utitle}”?`, a: [clip(d.text, 220)], x: `Read page ${d.p} (Unit ${d.unit}).` }; });
+      }
+      if (!pool.length) { say("There is not enough in this book yet to make questions from."); return out; }
+      say(`Here ${pool.length === 1 ? "is a question" : "are " + pool.length + " questions"}${um ? " on Unit " + um[1] : ""}. Try each one, then open the answer.`);
       out.quiz = pool;
       return out;
     }

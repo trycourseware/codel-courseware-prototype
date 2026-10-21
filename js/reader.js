@@ -41,7 +41,8 @@
   // ---------------------------------------------------------------- shell
   const root = el("div", { class: "reader-root" + (prefs.dark ? " night" : "") });
   document.body.prepend(root);
-  const banner = access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
+  const banner = T("draftBanner", "") ? el("div", { class: "banner warn flat" }, icon("pen", "i lg"), el("div", { class: "small" }, el("b", { text: T("draftBanner", "") })))
+    : access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
     : access === "preview" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Preview. " }), u ? "You are not registered for this course this semester, so only Unit 1 is available." : "Sign in to read the full course book. Only Unit 1 is available in preview."))
       : null;
   const back = el("a", { class: "tb", href: C.link(access === "retro" ? "home" : "course", { c: slug }), "aria-label": "Back" }, icon("back", "i lg"));
@@ -237,7 +238,9 @@
     if (io) io.disconnect();
     stage.onscroll = null;
     let rafq = 0;
-    window.onscroll = () => { if (rafq) return; rafq = requestAnimationFrame(() => { rafq = 0; const vis = $$(".pmark", art).filter((m) => m.getBoundingClientRect().top < innerHeight * 0.35); const last = vis[vis.length - 1]; if (last && +last.dataset.p !== page) setPage(+last.dataset.p, false); }); };
+    window.onscroll = () => { if (rafq) return; rafq = requestAnimationFrame(() => { rafq = 0; const line = innerHeight * 0.35; const vis = $$(".pmark", art).filter((m) => m.getBoundingClientRect().top < line); const last = vis[vis.length - 1]; if (last && +last.dataset.p !== page) setPage(+last.dataset.p, false);
+      const hs = $$("h3[data-bid]", art).filter((h) => h.getBoundingClientRect().top < line), h = hs[hs.length - 1], P = BOOK.pages[page - 1], hb = h && blocks[h.dataset.bid];
+      if (hb && P && P.unit && BOOK.pages[hb.p - 1] && BOOK.pages[hb.p - 1].unit === P.unit) $("#rsub").textContent = `${course.code} · Unit ${P.unit} · ${h.textContent}`; }); };
   }
   function scrollToPage(n) { const m = document.getElementById("p-" + n) || (n === 1 ? document.getElementById("p-2") : null); if (m) window.scrollTo({ top: m.getBoundingClientRect().top + scrollY - 70, behavior: "auto" }); }
 
@@ -308,10 +311,14 @@
   }
   function turn(dir) {
     if (anim) return;
-    const step = spreadMode ? (page === 1 && dir > 0 ? 1 : 2) : 1;
-    let target = page + dir * step;
-    if (spreadMode) { if (dir > 0 && page === 1) target = 2; if (dir < 0 && page <= 3) target = 1; }
-    if (target < 1 || target > BOOK.npages) return;
+    let target = page + dir;
+    if (spreadMode) {
+      // spreads are 1 | 2-3 | 4-5 …: step from the spread's left page, whichever page of it is current
+      const base = spreadPages(page)[0] || 1;
+      target = dir > 0 ? (page === 1 ? 2 : base + 2) : (base <= 3 ? 1 : base - 2);
+    }
+    if (target === page || target < 1) return;
+    if (target > BOOK.npages) return C.say("This is the end of the book.");
     if (!allowedPage(target) && dir > 0) return C.say("The rest of the book is locked in preview.");
     const sheet = stage.querySelector(".fsheet"); if (!sheet) { go(target); return; }
     anim = true;
@@ -397,7 +404,19 @@
   });
 
   // ---------------------------------------------------------------- navigation & state
-  let savedPage = null;
+  let savedPage = null, seenT = null;
+  // pages read, one character per page ("1" read); a book read before this was kept counts its earlier progress from the start
+  function markSeen(pages) {
+    const all = ud.get("seen", {}), N = BOOK.npages;
+    let s = all[slug];
+    if (typeof s !== "string" || s.length !== N) { const upto = Math.round(((ud.get("prog", {})[slug] || 0) * N) / 100); s = Array.from({ length: N }, (_, i) => (i < upto ? "1" : "0")).join(""); }
+    const a = s.split("");
+    pages.forEach((p) => { if (p >= 1 && p <= N) a[p - 1] = "1"; });
+    const now = a.join("");
+    if (now === all[slug]) return;
+    all[slug] = now; ud.set("seen", all);
+    const pr = ud.get("prog", {}); pr[slug] = Math.round(((now.match(/1/g) || []).length / N) * 100); ud.set("prog", pr);
+  }
   function setPage(n, scroll = true) {
     page = Math.max(1, Math.min(BOOK.npages, n));
     slider.value = page;
@@ -407,7 +426,8 @@
     if (u && savedPage !== page) {
       savedPage = page;
       const pos = ud.get("pos", {}); pos[slug] = page; ud.set("pos", pos);
-      const pr = ud.get("prog", {}); const pct = Math.round(page / BOOK.npages * 100); if (pct > (pr[slug] || 0)) { pr[slug] = pct; ud.set("prog", pr); }
+      clearTimeout(seenT); const at = page;
+      seenT = setTimeout(() => { if (page === at) markSeen(view === "flip" ? spreadPages(page).filter(Boolean) : [page]); }, 5000);
     }
     if (scroll && view === "scroll") scrollToPage(page);
   }
@@ -603,6 +623,8 @@
     el("button", { class: "btn sec block", onclick: () => darkBtn.click() }, icon("sun"), "Night mode"),
     el("button", { class: "btn sec block", onclick: () => speakBtn.click() }, icon("head"), "Read aloud"),
     el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(toggleFull, 50); } }, icon("full"), "Full screen"),
+    // on phones the Print button is not in the bar: the same watermarked study copy (quota 2) from here
+    el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(() => prBtn.click(), 50); } }, icon(canPrint ? "print" : "lock"), "Print a study copy"),
     el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(() => noteBtn.click(), 50); } }, icon("note"), "Add a note to this page")), actions: [{ label: "Done", id: 1 }] }));
   dlBtn.addEventListener("click", () => {
     if (!canDownload) return C.say(access === "retro" ? "Not available during retrospective access: read online only." : "Downloading is available to registered students.");

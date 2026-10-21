@@ -80,7 +80,7 @@
       set(path, v) { const o = S.get(key, {}); o[path] = v; S.set(key, o); },
       all() { return S.get(key, {}); },
       reset() { S.del(key); },
-      resetReading() { const o = S.get(key, {}); Object.keys(o).forEach((k) => { if (/^(notes|bm|hl|quiz|quizdraft|pqans|ai):/.test(k) || ["pos", "prog", "dl", "readerPrefs"].includes(k)) delete o[k]; }); S.set(key, o); },
+      resetReading() { const o = S.get(key, {}); Object.keys(o).forEach((k) => { if (/^(notes|bm|hl|quiz|quizdraft|pqans|ai):/.test(k) || ["pos", "prog", "seen", "dl", "readerPrefs"].includes(k)) delete o[k]; }); S.set(key, o); },
     };
   };
   C.log = (u, what, extra = {}) => { const l = S.get("activity", []); l.push({ id: u.id, what, at: Date.now(), ...extra }); S.set("activity", l.slice(-2000)); };
