@@ -262,7 +262,7 @@
         el("div", { class: "label", text: `${c.code} · ${quiz.title}` }),
         el("div", { class: "big", text: at.pct + "%" }),
         el("p", { text: `${at.score} of ${at.total} correct · time ${mm} min ${ss} s · ${reviewOnly ? "attempt on " + C.fmtTime(at.at) : "best score " + st2.best + "%"}` }),
-        el("p", { class: "small", text: at.pct >= 80 ? "Excellent. You are ready for the next unit." : at.pct >= 50 ? "Good work. Review the explanations below for the questions you missed." : "Read the relevant section of the course book again, then retake the quiz." }),
+        el("p", { class: "small", text: at.pct >= 100 ? "All answers correct. Next: the following unit, or the past questions." : "The explanations below show the answers to the questions you missed and the pages to read; you can then retake the quiz." }),
         el("div", { class: "btns" }, locked ? null : el("a", { class: "btn", href: `quiz.html?q=${encodeURIComponent(quiz.id)}` }, icon("sync"), "Retake"), el("a", { class: "btn sec", href: quiz.ref ? quiz.ref.href : `reader.html?c=${quiz.slug}` }, icon("book"), "Read: " + (quiz.ref ? quiz.ref.label : "course book")),
           el("a", { class: "btn ghost", href: `quizzes.html?c=${quiz.slug}`, text: "All quizzes" }))),
         el("h2", { class: "mt", text: "Review your answers" }),

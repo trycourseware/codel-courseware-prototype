@@ -90,7 +90,6 @@
     if (C.isStaff(u)) { location.replace("staff.html"); return; }
     const e = C.enrol(u), ud = C.ud(u);
     const P = e.P, L = e.L;
-    const first = u.n.split(" ")[0];
     const cont = Object.entries(ud.get("pos", {})).filter(([s]) => e.current.includes(s)).sort((a, b) => (ud.get("prog", {})[b[0]] || 0) - (ud.get("prog", {})[a[0]] || 0))[0];
     const left = el("div", { class: "stack0" });
     left.append(el("div", { class: "banner" }, icon("cal", "i lg"), el("div", {}, el("b", { text: "Semester 1, 2026/2027. " }), `You are registered for ${e.current.length} courses. Read online, download for offline study, or print a personal copy at your own cost.`)));
@@ -128,8 +127,8 @@
     side.append(el("div", { class: "card pad aicard" }, el("h3", {}, icon("spark"), " AI study assistant"),
       el("p", { class: "small muted", text: C.aiSubscribed && C.aiSubscribed(u) ? "Your subscription is active. Ask about any of your course books; every answer shows the page it used." : "Explanations, summaries and practice from your approved course books and past questions, with page references. Optional paid service." }),
       el("a", { class: "btn sec sm", href: "ai.html", text: C.aiSubscribed && C.aiSubscribed(u) ? "Open the assistant" : "Learn more" })));
-    main.append(el("div", { class: "crumb" }, "Dashboard"), el("h1", { text: `Welcome back, ${first}` }),
-      el("div", { class: "muted" }, el("a", { href: `programme-${P.slug}.html`, text: P.name }), ` · Level ${L.level}${e.option ? " · " + e.option : ""} · ${C.centre(u.c)} study centre · ${u.id}`),
+    main.append(el("div", { class: "crumb" }, "Dashboard"), el("h1", {}, el("a", { class: "h1link", href: `programme-${P.slug}.html`, text: P.name })),
+      el("div", { class: "muted", text: `${u.n} · Level ${L.level}${e.option ? " · " + e.option : ""} · ${C.centre(u.c)} study centre · ${u.id}` }),
       el("div", { class: "two" }, left, side));
   }
 
@@ -205,7 +204,7 @@
   function staffPage() {
     const u = C.requireUser(), main = $("#main");
     if (!C.isStaff(u)) { location.replace("dashboard.html"); return; }
-    main.append(el("div", { class: "crumb" }, "Staff home"), el("h1", { text: `Welcome, ${u.n.split(" ")[0]}` }), el("div", { class: "muted", text: `${C.roleName(u)} · ${u.id}${u.c ? " · " + C.centre(u.c) + " study centre" : ""}${u.prog ? " · " + C.prog(u.prog).name : ""}` }));
+    main.append(el("div", { class: "crumb" }, "Staff home"), el("h1", { text: u.n }), el("div", { class: "muted", text: `${C.roleName(u)} · ${u.id}${u.c ? " · " + C.centre(u.c) + " study centre" : ""}${u.prog ? " · " + C.prog(u.prog).name : ""}` }));
     if (u.r === "t" || u.r === "c") tutorView(u, main);
     if (u.r === "w") main.append(el("div", { class: "sech" }, el("h2", { text: "My course books" })),
       el("p", { class: "small muted", text: "As a course book author you prepare new editions. In the Moodle version you edit a draft edition and submit it to the course coordinator, who reviews and publishes it; students are notified." }),

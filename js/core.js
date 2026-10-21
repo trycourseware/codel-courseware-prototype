@@ -187,7 +187,7 @@
         if (t.by === u.id) t.posts.slice(1).filter((p) => p.by !== u.id && !p.hidden).forEach((p) => push("n-rep-" + p.id, `${C.userById[p.by.toLowerCase()]?.n || "Someone"} replied to your post “${t.title}”.`, `forum.html?c=${s}&t=${t.id}`, p.at));
       }));
     } else {
-      push("n-staff", "Welcome to the staff view of the CODeL Courseware prototype.", "staff.html", now - 2 * day);
+      push("n-staff", "Staff view of the prototype: your courses, marking and moderation.", "staff.html", now - 2 * day);
       if (u.r === "t" || u.r === "c") {
         const flagged = u.cs.reduce((a, s) => a + (S.get("forum:" + s, []) || []).reduce((b, t) => b + t.posts.filter((p) => p.flags && p.flags.length && !p.hidden).length, 0), 0);
         if (flagged) push("n-flag-" + flagged, `${flagged} reported post(s) are waiting for moderation in your courses.`, "staff.html#moderation", now);

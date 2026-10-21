@@ -731,3 +731,7 @@ body.printpage{background:#E9E9EF}
 .fpage ol.contents{gap:0}
 .fpage ol.contents a{min-height:46px;align-items:center}
 .fpage ol.contents .dots{transform:none}
+
+/* the Dashboard heading is the programme, linked to its page */
+.h1link{color:inherit;text-decoration:none}
+.h1link:hover,.h1link:focus-visible{text-decoration:underline}
