@@ -749,6 +749,24 @@
     else if (act === "rm" && sel.existing) { removeHl(sel.gid); if (panel.classList.contains("open") && curTab === "n") showTab("n"); C.say("Highlight removed."); }
   });
 
+  // Copying (the user's request, 27 October 2026, against copying out whole books): a student may copy up to about 250
+  // words at a time; a longer passage gives its first part, followed by its source (course, edition, page, and whose
+  // copy it is) and a note. Selecting, highlighting, notes, the AI assistant and read aloud are not limited, nor staff.
+  const COPYMAX = 1500;
+  document.addEventListener("copy", (e) => {
+    if (access === "staff" || !e.clipboardData) return;
+    const s = window.getSelection(); if (!s || s.isCollapsed || !s.rangeCount) return;
+    const range = s.getRangeAt(0);
+    if (!stage.contains(range.commonAncestorContainer) && !range.intersectsNode(stage)) return;
+    const text = s.toString().replace(/[ \t]+\n/g, "\n"); if (text.length <= COPYMAX) return;
+    let part = text.slice(0, COPYMAX); const sp = part.search(/\s\S*$/); if (sp > COPYMAX * 0.8) part = part.slice(0, sp);
+    const parts = blockParts(range), p = parts.length ? parts[0].p : page;
+    const src = `${course.code} ${course.title}, edition ${BOOK.edition}, p. ${p}` + (u ? `. Copy licensed to ${u.n} · ${u.id}` : "");
+    e.clipboardData.setData("text/plain", part.trim() + " …\n\n[" + src + ". Up to about 250 words can be copied at a time.]");
+    e.preventDefault();
+    C.say("Up to about 250 words can be copied at a time: the first part was copied, with its source.", 5000);
+  });
+
   // ---------------------------------------------------------------- tools
   function applySize() {
     if (view === "flip") { const b = stage.querySelector(".fbook"); if (b) fitBook(b); return; }
