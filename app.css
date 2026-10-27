@@ -813,3 +813,33 @@ body.printpage{background:#E9E9EF}
 .reader-root.wm .pcontent{position:relative}
 .reader-root.wm .pcontent::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:6;background:var(--wm) 0 0/360px 200px repeat}
 .reader-root.wm.night .pcontent::after{background-image:var(--wm-night)}
+
+/* loading: an outline of a page with grey lines (while the book's data arrives, and in place of a printed page's
+   picture until it has arrived); the lines shimmer unless the reader asked for less motion */
+.rskel{max-width:760px;margin:24px auto;padding:0 16px}
+#rskel{position:fixed;inset:0;z-index:50;background:var(--bg,#F4F5F9);padding-top:72px;margin:0;max-width:none;overflow:hidden}
+#rskel::before{content:"";position:fixed;left:0;right:0;top:0;height:58px;background:#fff;border-bottom:1px solid #E3E5EC}
+#rskel .rskel-page{max-width:720px;margin:0 auto}
+.rskel-page{background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:48px 56px;min-height:60vh}
+.rskel-l{height:12px;margin:0 0 16px;border-radius:4px;background:#E7E9F0}
+.rskel-msg{text-align:center;color:#6B7080;font:14px "Segoe UI",Arial,sans-serif;margin-top:14px}
+.pcontent .bpage .pbox.ld{background:#fff repeating-linear-gradient(to bottom,#E7E9F0 0 11px,transparent 11px 27px) 50% 48px/78% calc(100% - 96px) no-repeat}
+.pcontent .bpage .pbox.ld img{opacity:0}
+.pcontent .bpage .pbox img{transition:opacity .25s}
+.rskel-l,.pcontent .bpage .pbox.ld{position:relative;overflow:hidden}
+.rskel-l::after,.pcontent .bpage .pbox.ld::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);transform:translateX(-100%);animation:rskel 1.4s ease-in-out infinite}
+@keyframes rskel{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.rskel-l::after,.pcontent .bpage .pbox.ld::after{animation:none;display:none}}
+.reader-root.night .rskel-page,.reader-root.night .pcontent .bpage .pbox.ld{background-color:#23232E}
+.reader-root.night .rskel-l{background:#34343F}
+@media (max-width:600px){.rskel-page{padding:28px 20px}#rskel{padding-top:64px}}
+
+/* read aloud: the player bar while reading (pause, stop, voice, tone, speed) */
+.rplayer{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:45;display:none;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
+  background:#fff;border-radius:12px;box-shadow:0 4px 18px rgba(20,24,60,.18);padding:8px 12px;max-width:calc(100vw - 24px);font:13px "Segoe UI",Arial,sans-serif}
+.rplayer.open{display:flex}
+.rplayer .input{width:auto;min-width:0;padding:4px 8px;font-size:13px;height:auto}
+.rplayer .rspeed,.voicectl .rspeed{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.rplayer input[type=range],.voicectl input[type=range]{width:110px;accent-color:var(--navy,#232263)}
+.reader-root.night .rplayer{background:#23232E;color:#E3E3EA}
+@media (max-width:600px){.rplayer{left:8px;right:8px;transform:none;max-width:none;bottom:60px;gap:6px;padding:8px}.rplayer .input{flex:1 1 40%}.rplayer input[type=range]{width:120px}}

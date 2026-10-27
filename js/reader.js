@@ -126,11 +126,12 @@
   const lic = el("span", { class: "lic" }, icon("user", "i sm"), u ? `Licensed to ${u.n} · ${u.id}` : "Preview copy");
   foot.append(prevB, pgInfo, slider, nextB, lic);
   root.append(...(banner ? [banner] : []), bar, el("div", { class: "rbody" }, panel, stage), foot);
-  const selbar = el("div", { class: "selbar", role: "toolbar", "aria-label": "Highlight, bookmark, note or ask AI" },
+  const selbar = el("div", { class: "selbar", role: "toolbar", "aria-label": "Highlight, bookmark, note, ask AI or read aloud" },
     el("div", { class: "hdots" }, ...HC.map(([c, n]) => el("button", { class: "hdot c-" + c, "data-act": "hl", "data-c": c, "aria-label": "Highlight in " + n.toLowerCase(), title: "Highlight in " + n.toLowerCase() }))),
     el("button", { "data-act": "bm", title: "Bookmark this passage" }, icon("mark"), el("span", { text: "Bookmark" })),
     el("button", { "data-act": "note", title: "Attach a note" }, icon("note"), el("span", { text: "Note" })),
     canAI ? el("button", { "data-act": "ask", title: "Discuss this passage with the AI assistant" }, icon("spark"), el("span", { text: "Ask AI" })) : null,
+    el("button", { "data-act": "read", title: "Read the selection aloud" }, icon("head"), el("span", { text: "Read aloud" })),
     el("button", { "data-act": "rm", class: "rm", title: "Remove this highlight" }, icon("trash"), el("span", { text: "Remove" })));
   const tpop = el("div", { class: "tpop", role: "dialog", "aria-label": "Text size" });
   document.body.append(selbar, tpop);
@@ -252,7 +253,13 @@
     // a page of the book as printed (the picture is the page; its text is behind it for the AI and search)
     else if (b.t === "page") {
       // the page box grows with the text size (--ts) and scrolls sideways inside the figure when it is wider than the column
-      const box = el("div", { class: "pbox" }, el("img", { src: b.src, alt: "Page " + (b.p || "") + " as printed", loading: "lazy", width: b.w || null, height: b.h || null }));
+      // until the picture has arrived (slow connections), the box shows grey lines where the text will be
+      const img = el("img", { alt: "Page " + (b.p || "") + " as printed", loading: "lazy", width: b.w || null, height: b.h || null });
+      const box = el("div", { class: "pbox ld" }, img);
+      const done = () => box.classList.remove("ld");
+      img.addEventListener("load", done); img.addEventListener("error", done);
+      img.src = b.src;
+      if (img.complete && img.naturalWidth) done();
       n = el("figure", { class: "bpage" }, box);
       if (b.lines && b.lines.length && b.w && b.h) {
         // the text layer: each printed line as invisible text at its place on the picture (as a searchable PDF does), so
@@ -737,6 +744,7 @@
       refresh(); if (panel.classList.contains("open") && curTab === "n") showTab("n"); C.say(sel.existing ? "Highlight colour changed." : "Highlighted in " + b.dataset.c + ".");
     } else if (act === "bm") { if (!sel.existing && u) addHighlight(sel, prefs.hc); addPassageBm(sel); }
     else if (act === "note") addNote(null, sel);
+    else if (act === "read") { if (!("speechSynthesis" in window)) C.say("Read aloud is not supported in this browser."); else readText(sel.text); }
     else if (act === "ask") { aiCtx = { text: sel.text, p: sel.p, bid: sel.bid }; togglePanel(true); showTab("a"); }
     else if (act === "rm" && sel.existing) { removeHl(sel.gid); if (panel.classList.contains("open") && curTab === "n") showTab("n"); C.say("Highlight removed."); }
   });
@@ -765,16 +773,41 @@
     tpop.style.top = r.bottom + 6 + "px"; tpop.style.left = Math.max(8, Math.min(innerWidth - tpop.offsetWidth - 8, r.left + r.width / 2 - tpop.offsetWidth / 2)) + "px";
   });
   darkBtn.addEventListener("click", () => { prefs.dark = !prefs.dark; root.classList.toggle("night", prefs.dark); darkBtn.setAttribute("aria-pressed", String(prefs.dark)); savePrefs(); });
-  // Read aloud: the page's text sentence by sentence (browsers stop a long passage part-way, silently: Chrome after about
-  // fifteen seconds), then the following pages, turning to each, until stopped or the end of what may be read. The
-  // voice (the device's English voices), its pitch and speed are chosen in Reader options.
-  const PITCH = { normal: 1, deep: 0.7, higher: 1.25 }, RATE = { slower: 0.8, normal: 0.95, faster: 1.15 };
+  // Read aloud (the user's requests, 26 and 27 October 2026). What is read: text selected on the page, on its own; else
+  // from the word last clicked (a line of the text layer on a page shown as printed), if it is still in view; else the
+  // page in view from its top. Sentence by sentence (browsers stop a long passage part-way, silently: Chrome after
+  // about fifteen seconds), then the following pages, turning to each, until stopped. Clicking in the text while
+  // reading goes on from there. The voice: female or male (the device's English voices, told apart by their names; when
+  // the device has none of the kind asked for, another voice is pitched to suit), a deep, normal or high tone and the
+  // speed; changed while reading, they apply at once. A small player bar (pause, stop, voice, tone, speed) shows while
+  // reading; the same settings are in Reader options.
+  const PITCH = { deep: 0.7, normal: 1, high: 1.25, higher: 1.25 };
+  const TONES = { deep: "Deep", normal: "Normal", high: "High" };
+  const FEMALE = /\b(zira|hazel|susan|libby|sonia|aria|jenny|michelle|natasha|clara|emily|samantha|karen|moira|tessa|serena|fiona|victoria|kate|ava|allison|joanna|salli|kimberly|ivy|amy|emma|olivia|ezinne|asilia|leah|neerja|catherine|linda|hayley|heather|nancy|elizabeth|sara|ashley|cora|monica|maisie|bella|hollie|abbi|female)\b/i;
+  const MALE = /\b(david|mark|george|ryan|guy|thomas|daniel|alex|fred|arthur|oliver|james|william|liam|brian|christopher|eric|roger|steffan|andrew|brandon|davis|jason|tony|ravi|prabhat|abeo|chilemba|connor|elliot|noah|ethan|jacob|luke|mitchell|wayne|ken|kofi|ollie|alfie|rishi|sean|aaron|male)\b/i;
   const englishVoices = () => ("speechSynthesis" in window ? speechSynthesis.getVoices() : []).filter((v) => /^en([-_]|$)/i.test(v.lang));
-  const chosenVoice = () => { const vs = englishVoices(); return vs.find((v) => v.voiceURI === prefs.voice) || vs.find((v) => /en[-_]GB/i.test(v.lang)) || vs[0] || null; };
-  const pageText = (n) => pageBlocks(n).map((id) => blocks[id].x || (blocks[id].items || []).join(". ")).join(" ").replace(/\s+/g, " ").trim();
+  const voiceKind = (v) => (FEMALE.test(v.name) ? "female" : MALE.test(v.name) ? "male" : "");
+  const rateOf = () => (typeof prefs.vrate === "number" ? prefs.vrate : { slower: 0.8, normal: 1, faster: 1.2 }[prefs.vrate] || 1);
+  const voiceName = (v) => v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+Online.*$/, "").replace(/\s+-\s+English.*$/, "");
+  // the voice to use: one the student picked, else the device's best English voice of the kind asked for (African or
+  // British English and natural voices first), else another English voice with its pitch moved towards that kind
+  function voicePlan() {
+    const vs = englishVoices(), kind = prefs.vkind === "male" ? "male" : "female";
+    const rank = (v) => (/en[-_](GH|NG|KE|ZA)/i.test(v.lang) ? 0 : /en[-_]GB/i.test(v.lang) ? 1 : 2) + (/natural|online|neural/i.test(v.name) ? 0 : 0.5);
+    const pick = prefs.voice ? vs.find((v) => v.voiceURI === prefs.voice) : null;
+    const ofKind = vs.filter((v) => voiceKind(v) === kind).sort((a, b) => rank(a) - rank(b));
+    const v = pick || ofKind[0] || vs.slice().sort((a, b) => rank(a) - rank(b))[0] || null;
+    const fake = !pick && !ofKind.length && !!v;
+    const pitch = (PITCH[prefs.vpitch] || 1) * (fake ? (kind === "male" ? 0.7 : 1.2) : 1);
+    return { v, kind, fake, pitch: Math.max(0.1, Math.min(2, pitch)), rate: rateOf() };
+  }
+  // a block's text to read; headings and list items end with a full stop, so the voice pauses after them
+  const stopped = (t) => { t = String(t || "").trim(); return !t || /[.!?;:]["”’)]*$/.test(t) ? t : t + "."; };
+  const blockText = (id) => { const b = blocks[id]; if (!b) return ""; if (b.items) return b.items.map(stopped).join(" "); return b.t === "h" ? stopped(b.x) : b.x || ""; };
+  const pageText = (n) => pageBlocks(n).map(blockText).join(" ").replace(/\s+/g, " ").trim();
   function sentences(text) {
     const out = [];
-    for (const s of text.match(/[^.!?;:]+[.!?;:]*["”’)]*\s*/g) || [text]) {
+    for (const s of text.match(/(?:[^.!?;:]|\.(?=\d))+[.!?;:]*["”’)]*\s*/g) || [text]) {
       let t = s.trim();
       while (t.length > 220) {                         // a long sentence: at a comma or a space
         let k = t.lastIndexOf(", ", 220); if (k < 80) k = t.lastIndexOf(" ", 220); if (k < 40) k = 220;
@@ -784,57 +817,159 @@
     }
     return out;
   }
-  let readQueue = [], readPage = 0;
-  function stopReading() { readQueue = []; speaking = false; if ("speechSynthesis" in window) speechSynthesis.cancel(); speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); }
-  function speakNext() {
-    if (!speaking) return;
-    const t = readQueue.shift();
-    if (t === undefined) return readFrom(readPage + 1, false);
-    const utt = new SpeechSynthesisUtterance(t), v = chosenVoice();
-    if (v) { utt.voice = v; utt.lang = v.lang; } else utt.lang = "en-GB";
-    utt.pitch = PITCH[prefs.vpitch] || 1; utt.rate = RATE[prefs.vrate] || 0.95;
-    utt.onend = speakNext;
-    utt.onerror = (e) => { if (speaking && e.error !== "interrupted" && e.error !== "canceled") speakNext(); };
+  let readQueue = [], readPage = 0, readOnly = false, current = null, paused = false, seq = 0, readMark = null;
+  const player = el("div", { class: "rplayer", role: "region", "aria-label": "Read aloud" });
+  root.append(player);
+  function utter(text, onend) {
+    const p = voicePlan(), utt = new SpeechSynthesisUtterance(text);
+    if (p.v) { utt.voice = p.v; utt.lang = p.v.lang; } else utt.lang = "en-GB";
+    utt.pitch = p.pitch; utt.rate = p.rate;
+    if (onend) { utt.onend = onend; utt.onerror = (e) => { if (e.error !== "interrupted" && e.error !== "canceled") onend(); }; }
     speechSynthesis.speak(utt);
+  }
+  function stopReading(msg) {
+    readQueue = []; current = null; speaking = false; paused = false; seq++;
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); player.classList.remove("open");
+    if (msg) C.say(msg);
+  }
+  function speakNext() {
+    if (!speaking || paused) return;
+    const t = readQueue.shift();
+    if (t === undefined) { current = null; return readOnly ? stopReading("Finished reading the selection.") : readFrom(readPage + 1, false); }
+    current = t; const my = ++seq;
+    utter(t, () => { if (my === seq) speakNext(); });
+  }
+  // say the current piece again (a setting changed, or resuming after a pause)
+  function respeak() {
+    if (!speaking || paused || !current) return;
+    seq++; speechSynthesis.cancel(); readQueue.unshift(current); current = null; setTimeout(speakNext, 60);
+  }
+  function begin(only) {
+    seq++; speechSynthesis.cancel();
+    speaking = true; paused = false; readOnly = !!only; current = null;
+    speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on");
+    showPlayer();
+    const p = voicePlan();
+    C.say((only ? "Reading the selection aloud." : "Reading aloud.") + (p.fake ? ` This device has no ${p.kind} English voice, so another voice is pitched ${p.kind === "male" ? "lower" : "higher"}.` : " Press Stop or the button again to stop."), 5000);
   }
   function readFrom(n, first) {
     const last = BOOK.pages.length;
     while (n <= last && allowedPage(n) && !pageText(n)) n++;            // (pages with nothing to read: a picture, a blank)
-    if (n > last || !allowedPage(n)) { stopReading(); if (!first) C.say("Read aloud finished."); return false; }
+    if (n > last || !allowedPage(n)) { stopReading(first ? "" : "Read aloud finished."); return false; }
     readPage = n; readQueue = sentences(pageText(n));
     if (!first && n !== page) go(n);                                    // keep the page being read in view
     speakNext();
     return true;
   }
+  // from a place in the text: the rest of its block, then the page's following blocks, then the following pages
+  function readAt(m) {
+    begin(false);
+    const ids = pageBlocks(m.p), i = ids.indexOf(m.bid);
+    readPage = m.p;
+    readQueue = sentences([m.rest, ...ids.slice(i + 1).map(blockText)].join(" ").replace(/\s+/g, " ").trim());
+    speakNext();
+  }
+  function readText(text) {
+    begin(true);
+    readQueue = sentences(text.replace(/\s+/g, " ").trim());
+    speakNext();
+  }
+  // the place clicked: the block and the text from the start of the word clicked to the end of the block; on a page
+  // shown as printed, the line of its text layer under the point (or the first line below it)
+  function placeAt(x, y, target) {
+    let node = null, off = 0;
+    if (document.caretPositionFromPoint) { const c = document.caretPositionFromPoint(x, y); if (c) { node = c.offsetNode; off = c.offset; } }
+    else if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(x, y); if (r) { node = r.startContainer; off = r.startOffset; } }
+    const fig = target.closest(".bpage");
+    if (fig && !(node && node.nodeType === 3 && fig.contains(node))) {
+      const line = $$(".textlayer span", fig).find((s) => s.getBoundingClientRect().bottom >= y);
+      if (!line || !line.firstChild) return null;
+      node = line.firstChild; off = 0;
+    }
+    if (!node || node.nodeType !== 3) return null;
+    const bel = node.parentElement && node.parentElement.closest("[data-bid]");
+    if (!bel || !stage.contains(bel) || !blocks[bel.dataset.bid]) return null;
+    const head = document.createRange(); head.setStart(bel, 0); head.setEnd(node, Math.min(off, node.length));
+    const all = document.createRange(); all.selectNodeContents(bel);
+    const before = head.toString(), w = before.search(/\S+$/);
+    const rest = all.toString().slice(w >= 0 ? w : before.length).replace(/\s+/g, " ").trim();
+    if (!rest) return null;
+    return { bid: bel.dataset.bid, p: blocks[bel.dataset.bid].p || page, rest };
+  }
+  const placeInView = (m) => { const n = document.getElementById("b-" + m.bid); if (!n) return false; const r = n.getBoundingClientRect(); return r.width > 0 && r.bottom > 70 && r.top < innerHeight - 50; };
+  stage.addEventListener("click", (e) => {
+    if (e.target.closest("a,button,input,textarea,select,.notecard,.locked-page")) return;
+    const s = window.getSelection(); if (s && s.toString().trim()) return;
+    const m = placeAt(e.clientX, e.clientY, e.target); if (!m) return;
+    readMark = m;
+    if (speaking) readAt(m);                                            // while reading: go on from the place clicked
+  });
+  const selectedText = () => {
+    const s = window.getSelection();
+    if (!s || s.isCollapsed || !s.rangeCount || !stage.contains(s.getRangeAt(0).commonAncestorContainer)) return "";
+    return s.toString().replace(/\s+/g, " ").trim();
+  };
   window.addEventListener("pagehide", () => { if (speaking) stopReading(); });   // (some browsers go on reading after the page is left)
+  let selAtPress = "";
+  speakBtn.addEventListener("pointerdown", () => { selAtPress = selectedText(); });
+  speakBtn.addEventListener("mousedown", (e) => e.preventDefault());              // (keeps the selection)
   speakBtn.addEventListener("click", () => {
     if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
     if (speaking) return stopReading();
-    speechSynthesis.cancel();
-    speaking = true; speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on");
+    const sel = selectedText() || selAtPress; selAtPress = "";
+    if (sel.length > 1) return readText(sel);
+    if (readMark && placeInView(readMark)) return readAt(readMark);
+    begin(false);
     const from = view === "flip" ? (spreadPages(page).filter(Boolean)[0] || page) : page;
-    if (!readFrom(from, true)) return C.say("Nothing to read on this page.");
-    C.say("Reading aloud. Press again to stop.");
+    if (!readFrom(from, true)) C.say("Nothing to read on this page.");
   });
-  // the voice, pitch and speed (Reader options): the device's English voices, each with a deeper or higher pitch
-  function voiceControl() {
-    const sel = el("select", { class: "input", "aria-label": "Voice" });
+  // the voice settings: female or male, a device voice (optional), the tone and the speed
+  function voiceControl(compact) {
+    const kind = el("select", { class: "input", "aria-label": "Voice" },
+      el("option", { value: "female", text: "Female voice" }), el("option", { value: "male", text: "Male voice" }));
+    kind.value = prefs.vkind === "male" ? "male" : "female";
+    const dev = el("select", { class: "input", "aria-label": "Device voice" });
     const fill = () => {
-      const vs = englishVoices(), cur = chosenVoice();
-      sel.replaceChildren(...(vs.length ? vs.map((v) => el("option", { value: v.voiceURI, text: `${v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+Online.*$/, "")} (${v.lang})`, selected: cur && v.voiceURI === cur.voiceURI })) : [el("option", { value: "", text: "The device's voice" })]));
+      const vs = englishVoices();
+      dev.replaceChildren(el("option", { value: "", text: "Best voice of that kind" }),
+        ...vs.map((v) => el("option", { value: v.voiceURI, text: voiceName(v) + " (" + v.lang + (voiceKind(v) ? ", " + voiceKind(v) : "") + ")" })));
+      dev.value = vs.some((v) => v.voiceURI === prefs.voice) ? prefs.voice : "";
     };
     fill();
     if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fill);
-    sel.addEventListener("change", () => { prefs.voice = sel.value; savePrefs(); });
-    const choice = (key, options, label) => el("select", { class: "input", "aria-label": label, onchange: (e) => { prefs[key] = e.target.value; savePrefs(); } },
-      ...Object.keys(options).map((k) => el("option", { value: k, text: k[0].toUpperCase() + k.slice(1), selected: (prefs[key] || "normal") === k })));
+    kind.addEventListener("change", () => { prefs.vkind = kind.value; prefs.voice = ""; dev.value = ""; savePrefs(); respeak(); });
+    dev.addEventListener("change", () => {
+      prefs.voice = dev.value;
+      const v = englishVoices().find((x) => x.voiceURI === dev.value); if (v && voiceKind(v)) { prefs.vkind = voiceKind(v); kind.value = prefs.vkind; }
+      savePrefs(); respeak();
+    });
+    const tone = el("select", { class: "input", "aria-label": "Tone" }, ...Object.entries(TONES).map(([k, t]) => el("option", { value: k, text: t + " tone" })));
+    tone.value = PITCH[prefs.vpitch] ? (prefs.vpitch === "higher" ? "high" : prefs.vpitch) : "normal";
+    tone.addEventListener("change", () => { prefs.vpitch = tone.value; savePrefs(); respeak(); });
+    const out = el("output", { class: "small", text: rateOf().toFixed(1) + "×" });
+    const speed = el("input", { type: "range", min: "0.6", max: "1.8", step: "0.1", value: String(rateOf()), "aria-label": "Speed" });
+    speed.addEventListener("input", () => { out.textContent = (+speed.value).toFixed(1) + "×"; });
+    speed.addEventListener("change", () => { prefs.vrate = +speed.value; out.textContent = prefs.vrate.toFixed(1) + "×"; savePrefs(); respeak(); });
+    const speedBox = el("label", { class: "small rspeed" }, "Speed ", speed, out);
+    if (compact) return [kind, tone, speedBox];
     const tryIt = el("button", { class: "btn ghost sm", type: "button", text: "Try it", onclick: () => {
       if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
-      stopReading(); const u2 = new SpeechSynthesisUtterance("This is how the course book will be read to you."), v = chosenVoice();
-      if (v) { u2.voice = v; u2.lang = v.lang; } u2.pitch = PITCH[prefs.vpitch] || 1; u2.rate = RATE[prefs.vrate] || 0.95; speechSynthesis.speak(u2);
+      stopReading(); utter("This is how the course book will be read to you.");
     } });
-    return el("div", { class: "voicectl" }, el("span", { class: "small", text: "Read-aloud voice" }), sel,
-      el("div", { class: "row2" }, el("label", { class: "small" }, "Pitch ", choice("vpitch", PITCH, "Pitch")), el("label", { class: "small" }, "Speed ", choice("vrate", RATE, "Speed")), tryIt));
+    return el("div", { class: "voicectl" }, el("span", { class: "small", text: "Read-aloud voice" }), el("div", { class: "row2" }, kind, tone), dev,
+      el("div", { class: "row2" }, speedBox, tryIt),
+      el("p", { class: "tiny muted", text: "Read aloud starts at the word you last clicked, or reads only the text you have selected." }));
+  }
+  function showPlayer() {
+    const pause = el("button", { class: "btn sm", type: "button", "aria-label": "Pause reading", text: "Pause" });
+    pause.addEventListener("click", () => {
+      if (!paused) { paused = true; seq++; speechSynthesis.cancel(); if (current) readQueue.unshift(current); current = null; pause.textContent = "Resume"; pause.setAttribute("aria-label", "Resume reading"); }
+      else { paused = false; pause.textContent = "Pause"; pause.setAttribute("aria-label", "Pause reading"); speakNext(); }
+    });
+    const stop = el("button", { class: "btn ghost sm", type: "button", "aria-label": "Stop reading", text: "Stop", onclick: () => stopReading() });
+    player.replaceChildren(icon("head", "i sm"), pause, stop, ...voiceControl(true));
+    player.classList.add("open");
   }
   more.addEventListener("click", () => C.modal({ title: "Reader options", body: el("div", { class: "stack" },
     sizeControl(),
@@ -882,8 +1017,15 @@
   }
 
   // ---------------------------------------------------------------- boot
+  // an outline of a page with grey lines, shown while the book is on its way
+  function skeleton() {
+    const pg = el("div", { class: "rskel-page" });
+    [40, 75, 100, 100, 92, 100, 64, 0, 100, 100, 85, 100, 100, 70, 0, 100, 96, 100, 58].forEach((w) => pg.append(el("div", { class: "rskel-l", style: { width: w + "%", visibility: w ? null : "hidden" } })));
+    return el("div", { class: "rskel", role: "status", "aria-label": "Loading the course book" }, pg, el("p", { class: "rskel-msg", text: "Loading the course book…" }));
+  }
   C.ready(async () => {
-    try { BOOK = await C.loadBook(slug); } catch (e) { stage.replaceChildren(el("p", { class: "pad", text: e.message })); return; }
+    if (!document.getElementById("rskel")) stage.replaceChildren(skeleton());
+    try { BOOK = await C.loadBook(slug); } catch (e) { const pre = document.getElementById("rskel"); if (pre) pre.remove(); stage.replaceChildren(el("p", { class: "pad", text: e.message })); return; }
     EMPTY = new Set(BOOK.units.length ? BOOK.pages.filter((p) => p.kind === "text" && !p.blocks.length).map((p) => p.n) : []);
     SEQ = BOOK.pages.map((p) => p.n).filter((n) => !EMPTY.has(n)); POS = new Map(SEQ.map((n, i) => [n, i]));
     BOOK.units.forEach((un) => un.blocks.forEach((b) => (blocks[b.id] = b)));
@@ -898,6 +1040,7 @@
     if (!allowedPage(page)) page = 1;
     $$("[data-v]", seg).forEach((b) => { b.classList.toggle("on", b.dataset.v === view); b.setAttribute("aria-pressed", String(b.dataset.v === view)); });
     render(); setPage(page, true);
+    const pre = document.getElementById("rskel"); if (pre) pre.remove();          // the outline the server sent first
     if (C.Q.get("b")) flash(C.Q.get("b")); else if (qu && qs && blocks[`u${qu}s${qs}`]) flash(`u${qu}s${qs}`);
     showTab("c");
     if (innerWidth >= 1000) togglePanel(true);
