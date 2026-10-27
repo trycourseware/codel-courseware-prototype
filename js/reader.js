@@ -6,7 +6,8 @@
   const u = C.me();
   const slug = C.course(C.Q.get("c")) ? C.Q.get("c") : Object.keys(C.D.courses)[0];
   const course = C.course(slug);
-  const access = C.access(slug, u);                       // full | retro | preview | staff
+  const access = C.access(slug, u);                       // full | retro | preview | register | staff
+  const limited = access === "preview" || access === "register";    // Unit 1 only
   const canDownload = access === "full" || access === "staff";
   const canPrint = canDownload;
   const canAI = access === "full" || access === "staff";
@@ -22,11 +23,45 @@
   // wording that differs between the prototype (defaults) and a real installation (C.text, set by the Moodle adapter)
   const T = (k, d) => (C.text && k in C.text ? C.text[k] : d);
   let BOOK = null, page = 1, view = C.Q.get("view") || prefs.view, speaking = false;
+  // pages with nothing on them, and the order of the pages that are shown (see shownFrom)
+  let EMPTY = new Set(), SEQ = [], POS = new Map();
 
   // ---------------------------------------------------------------- data helpers
   const blocks = {};                                     // id -> block
   const pageBlocks = (n) => (BOOK.pages[n - 1] && BOOK.pages[n - 1].blocks) || [];
-  const allowedPage = (n) => { const P = BOOK.pages[n - 1]; if (!P) return false; return access !== "preview" || n <= 3 || P.unit === 1 || P.kind === "end"; };
+  const allowedPage = (n) => { const P = BOOK.pages[n - 1]; if (!P) return false; return !limited || n <= 3 || P.unit === 1 || P.kind === "end"; };
+  // not registered for this semester: the rest of the book opens once OSIS shows the registration. "I have registered"
+  // asks the server to check; the student can report a registration the check does not find.
+  let regBusy = false;
+  function registerDialog() {
+    if (access !== "register") return C.say("That page is locked in preview.");
+    const msg = el("p", { class: "small", id: "regmsg" });
+    const note = el("textarea", { class: "input", rows: 2, placeholder: "Optional: your note to the office (e.g. the date you registered)", style: { display: "none" } });
+    const body = el("div", { class: "stack" },
+      el("p", { text: T("registerText", "You have not registered for this semester in OSIS, so this course book opens up to the end of Unit 1. Register, then press \"I have registered\" and the rest of the book unlocks.") }),
+      msg, note);
+    return C.modal({ title: T("registerTitle", "Register to read on"), body, actions: [
+      // (the dialog stays open while the server answers: the handlers return false and show the answer in it)
+      { id: "check", label: "I have registered", cls: "primary", value: (box) => {
+        if (regBusy) return false;
+        regBusy = true; msg.textContent = "Checking your registration…";
+        C.regcheck().then((r) => {
+          msg.textContent = r.message || "";
+          if (r.result === "registered") { msg.textContent += " Opening the book…"; setTimeout(() => location.reload(), 1800); return; }
+          if (r.result === "unregistered") { note.style.display = ""; const rb = box.querySelector("[data-report]"); if (rb) rb.style.display = ""; }
+        }).catch((e) => { msg.textContent = "The check could not be made: " + (e.message || "please try again."); }).finally(() => { regBusy = false; });
+        return false;
+      } },
+      { id: "report", label: "I have registered, but it is not recognised: report to the office", cls: "", value: (box) => {
+        const rb = box.querySelector("[data-report]");
+        if (rb) rb.disabled = true;
+        C.regreport(note.value).then(() => { msg.textContent = "Reported to the CODeL office. They will check your registration and reply to you."; note.style.display = "none"; if (rb) rb.style.display = "none"; })
+          .catch((e) => { msg.textContent = "The report could not be sent: " + (e.message || "please try again."); if (rb) rb.disabled = false; });
+        return false;
+      } },
+      { id: "close", label: "Close", cls: "ghost" },
+    ], onOpen: (box) => { const rb = [...box.querySelectorAll(".mact .btn")].find((b) => /report/.test(b.textContent)); if (rb) { rb.dataset.report = "1"; rb.style.display = "none"; } } });
+  }
   const unitOfPage = (n) => BOOK.pages[n - 1] && BOOK.pages[n - 1].unit;
   const pageLabel = (n) => {
     const P = BOOK.pages[n - 1];
@@ -41,8 +76,22 @@
   // ---------------------------------------------------------------- shell
   const root = el("div", { class: "reader-root" + (prefs.dark ? " night" : "") });
   document.body.prepend(root);
+  // on-screen watermark: the student's name and index number, faint and diagonal, repeated over every page, so a
+  // screenshot or photograph of the book shows whose copy it was (as the print copies do). It is a background picture:
+  // it cannot be selected, copied or found by search, and clicks, selection and highlights pass through it. Staff
+  // (authors, reviewers, tutors) read without it.
+  if (u && access !== "staff") {
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c]);
+    const tile = (fill) => "url(\"data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="360" height="200">`
+      + `<text x="180" y="100" text-anchor="middle" dominant-baseline="middle" transform="rotate(-24 180 100)" font-family="Segoe UI,Arial,sans-serif" `
+      + `font-size="15" font-weight="600" fill="${fill}">${esc(u.n + " · " + u.id)}</text></svg>`) + "\")";
+    root.classList.add("wm");
+    root.style.setProperty("--wm", tile("rgba(29,47,111,0.10)"));
+    root.style.setProperty("--wm-night", tile("rgba(255,255,255,0.10)"));
+  }
   const banner = T("draftBanner", "") ? el("div", { class: "banner warn flat" }, icon("pen", "i lg"), el("div", { class: "small" }, el("b", { text: T("draftBanner", "") })))
     : access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
+    : access === "register" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Unit 1 only. " }), "You have not registered for this semester. ", el("a", { href: "#", text: "I have registered", onclick: (e) => { e.preventDefault(); registerDialog(); } })))
     : access === "preview" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Preview. " }), u ? "You are not registered for this course this semester, so only Unit 1 is available." : "Sign in to read the full course book. Only Unit 1 is available in preview."))
       : null;
   const back = el("a", { class: "tb", href: C.link(access === "retro" ? "home" : "course", { c: slug }), "aria-label": "Back" }, icon("back", "i lg"));
@@ -147,7 +196,7 @@
         hits.forEach((b) => {
           const t = b.x || (b.items || []).join(" "); const i = t.toLowerCase().indexOf(v);
           const snip = (i > 30 ? "…" : "") + t.slice(Math.max(0, i - 30), i + v.length + 50) + "…";
-          res.append(item(snip, `p. ${b.p} · Unit ${b.id.match(/u(\d+)/)[1]}`, () => { go(b.p); flash(b.id); }, !allowedPage(b.p)));
+          res.append(item(snip, `p. ${b.p} · Unit ${b.id.match(/u(\d+)/)[1]}`, () => { go(b.p); flash(b.id); showHit(b, v); }, !allowedPage(b.p)));
         });
       });
       pbody.append(q, res); setTimeout(() => q.focus(), 30);
@@ -165,29 +214,74 @@
   }
 
   // ---------------------------------------------------------------- block rendering
+  // a piece of a paragraph: text with its marks (f: b bold, i italics, u underlined, d subscript, p superscript), or a
+  // symbol or formula a printed module has as a picture, at the size of the text
+  const MARK = { b: "strong", i: "em", u: "u", d: "sub", p: "sup" };
+  const marked = (node, f) => { for (const k of f || "") if (MARK[k]) node = el(MARK[k], {}, node); return node; };
+  // a formula (MathML, typed from the module): only its own elements and attributes are kept
+  const MATHTAGS = new Set(["math", "mrow", "mi", "mn", "mo", "mtext", "mspace", "mfrac", "msup", "msub", "msubsup", "munder", "mover", "munderover", "msqrt", "mroot",
+    "mtable", "mtr", "mtd", "mstyle", "mpadded", "menclose", "mfenced", "ms", "mphantom", "semantics", "annotation"]);
+  const formula = (m) => {
+    const doc = new DOMParser().parseFromString("<!doctype html><body>" + m, "text/html"), root = doc.body.querySelector("math");
+    if (!root) return document.createTextNode("");
+    const walk = (n) => { for (const c of [...n.childNodes]) {
+      if (c.nodeType === 1) { if (!MATHTAGS.has(c.localName)) { n.removeChild(c); continue; } for (const a of [...c.attributes]) if (/^on|^xlink|href|src/i.test(a.name)) c.removeAttribute(a.name); walk(c); }
+      else if (c.nodeType !== 3) n.removeChild(c); } };
+    walk(root); const span = el("span", { class: "eq" }); span.append(document.adoptNode(root)); return span;
+  };
+  const piece = (s) => s.src ? el("img", { class: "inl", src: s.src, alt: "", loading: "lazy", style: { height: (s.h || 1) * 1.05 + "em" } })
+    : s.m ? formula(s.m) : s.x === "\n" ? el("br") : marked(document.createTextNode(s.x), s.f);
+  const NUM = /^\(?-?(GH\s?[¢₵]\s?)?\d[\d,.\s]*\)?%?$/, YEAR = /^(19|20)\d\d$/;      // (a year in an account's date column is not an amount)
   function blockEl(b) {
     let n;
     if (b.t === "h") n = el("h3", { text: b.x });
+    else if (b.t === "p" && b.inl) n = el("p", {}, ...b.inl.map(piece));
     else if (b.t === "p") n = el("p", { text: b.x });
-    else if (b.t === "ul") n = el("ul", {}, ...b.items.map((x) => el("li", { text: x })));
+    else if (b.t === "ul") n = el("ul", {}, ...b.items.map((x, i) => b.inls && b.inls[i] ? el("li", {}, ...b.inls[i].map(piece)) : el("li", { text: x })));
+    // bold lines, tables and pictures of books imported from Word (the prototype's sample books have none)
+    else if (b.t === "sub") n = el("h4", { class: "bsub", text: b.x });
+    // lines set out in columns in a printed PDF (accounts, statements): columns without rules, amounts to the right; an
+    // account with its name over it, the line between its debit and credit sides and the rules under its totals
+    else if (b.t === "table") n = el("div", { class: "btable" + (b.cols ? " cols" : "") + (b.split ? " acct" : "") + (b.rule === "top" ? " topline" : "") },
+      el("table", {}, b.cap ? el("caption", { text: b.cap }) : null, ...b.rows.map((r, i) => el("tr", {}, ...r.map((c, j) => {
+        const mk = (b.marks || {})[i + "," + j];
+        const cls = [b.cols && j > 0 && NUM.test(c.trim()) && !YEAR.test(c.trim()) ? "num" : "", mk ? "rl-" + mk : "", b.split && j === b.split - 1 ? "lend" : ""].filter(Boolean).join(" ");
+        return el(i === 0 && b.head ? "th" : "td", { class: cls || null }, marked(document.createTextNode(c), (b.fmt || {})[i + "," + j]));
+      })))));
+    else if (b.t === "img") n = el("figure", { class: "bimg" }, el("img", { src: b.src, alt: b.alt || "", loading: "lazy" }));
+    // a page of the book as printed (the picture is the page; its text is behind it for the AI and search)
+    else if (b.t === "page") {
+      // the page box grows with the text size (--ts) and scrolls sideways inside the figure when it is wider than the column
+      const box = el("div", { class: "pbox" }, el("img", { src: b.src, alt: "Page " + (b.p || "") + " as printed", loading: "lazy", width: b.w || null, height: b.h || null }));
+      n = el("figure", { class: "bpage" }, box);
+      if (b.lines && b.lines.length && b.w && b.h) {
+        // the text layer: each printed line as invisible text at its place on the picture (as a searchable PDF does), so
+        // the page can be selected, searched and highlighted; a space after each line keeps the words apart in selections
+        const layer = el("div", { class: "textlayer" });
+        b.lines.forEach(([x, y, w, h, t]) => { layer.append(el("span", { "data-w": w, style: { left: x * 100 + "%", top: y * 100 + "%", fontSize: (h * b.h / b.w * 100).toFixed(3) + "cqw" }, text: t }), document.createTextNode(" ")); });
+        box.append(layer); fitLayer(box);
+      }
+    }
     else n = el("div", { class: "callout" }, icon("quiz"), el("span", { text: b.x }), el("a", { href: C.link("quizzes", { c: slug }), class: "tiny", text: " Open quizzes" }));
     n.dataset.bid = b.id; n.id = "b-" + b.id;
     return n;
   }
   function pageContent(n) {
     const P = BOOK.pages[n - 1], wrap = el("div", { class: "pcontent" });
-    if (!allowedPage(n)) { wrap.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: "This page is not available in preview." }))); return wrap; }
+    if (!allowedPage(n)) { wrap.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: access === "register" ? "Register for this semester to read on." : "This page is not available in preview." }), access === "register" ? el("button", { class: "btn sm", type: "button", text: "I have registered", onclick: registerDialog }) : null)); return wrap; }
     if (P.kind === "cover") wrap.append(C.cover(course, "big"));
     else if (P.kind === "title") wrap.append(el("div", { class: "titlepage" },
       el("div", { class: "label", text: "College for Distance and e-Learning" }), el("h2", { text: course.title }), el("p", { class: "muted", text: course.code + " · Edition " + BOOK.edition + T("editionNote", " (sample)") }),
       el("p", { class: "small", text: "Offered in: " + [...new Set(course.offerings.map((o) => C.prog(o.p).short))].join(", ") }),
+      ratingLine(),
       el("p", { class: "small muted lic2", text: u ? `Licensed to ${u.n} · ${u.id}. For personal study only.` : "Preview copy." }),
       T("sampleNote", true) ? el("p", { class: "tiny muted", text: "Sample text for the prototype. The approved course book appears here." }) : null));
     else if (P.kind === "contents") wrap.append(el("h2", { text: "Contents" }), el("ol", { class: "contents" }, ...BOOK.units.map((un) =>
       el("li", {}, el("a", { href: "#", onclick: (e) => { e.preventDefault(); go(un.page); } }, el("span", { text: `Unit ${un.n}  ${un.title}` }), el("span", { class: "dots" }), el("span", { text: un.page }))))));
     else if (P.kind === "end") wrap.append(el("div", { class: "titlepage" }, el("h2", { text: "End of the course book" }),
       el("p", { text: "Take the self-checks in Quizzes, practise with past questions and join the course discussion." }),
-      el("div", { class: "btns" }, el("a", { class: "btn sec sm", href: C.link("quizzes", { c: slug }), text: "Quizzes" }), el("a", { class: "btn sec sm", href: C.link("pastq", { c: slug }), text: "Past questions" }))));
+      el("div", { class: "btns" }, el("a", { class: "btn sec sm", href: C.link("quizzes", { c: slug }), text: "Quizzes" }), el("a", { class: "btn sec sm", href: C.link("pastq", { c: slug }), text: "Past questions" })),
+      rateBox()));
     else {
       if (P.opener) { const un = BOOK.units[P.unit - 1]; wrap.append(el("div", { class: "u", text: `UNIT ${un.n}` }), el("h2", { text: un.title })); }
       P.blocks.forEach((id) => wrap.append(blockEl(blocks[id])));
@@ -211,6 +305,54 @@
     }
     return made;
   }
+  // Ratings of the book (Moodle: local_codel\ratings, through the adapter's C.rating and C.rate): the average once enough
+  // students have rated; a registered student rates with one to five stars and, if they wish, a comment for the course team.
+  const rating = () => (C.rating ? C.rating() : null);
+  const starsText = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
+  function ratingLine() {
+    const r = rating();
+    if (!r || !r.shown) return null;
+    return el("p", { class: "small rating-line", title: `Average of ${r.count} students' ratings` }, el("span", { class: "stars", text: starsText(r.avg), "aria-hidden": "true" }),
+      ` ${r.avg.toFixed(1)} · ${r.count} rating${r.count === 1 ? "" : "s"}`);
+  }
+  function rateBox() {
+    const r = rating();
+    if (!r || !r.can) return null;
+    let stars = r.mine ? r.mine.stars : 0;
+    const status = el("p", { class: "tiny muted", "aria-live": "polite", text: r.mine ? "Your rating is saved. You can change it." : "" });
+    const btns = [1, 2, 3, 4, 5].map((n) => el("button", { type: "button", class: "starbtn", "aria-label": `${n} star${n === 1 ? "" : "s"}`, text: "★",
+      onclick: () => { stars = n; paint(); } }));
+    const paint = () => btns.forEach((b, i) => { b.classList.toggle("on", i < stars); b.setAttribute("aria-pressed", String(i < stars)); });
+    paint();
+    const comment = el("textarea", { class: "input", rows: 3, maxlength: 1000, placeholder: "A comment for the course team (optional): what helped, what was hard to follow", "aria-label": "Comment for the course team" });
+    comment.value = r.mine ? r.mine.comment : "";
+    const save = el("button", { type: "button", class: "btn sm", text: "Save my rating", onclick: () => {
+      if (!stars) { status.textContent = "Choose one to five stars."; return; }
+      save.disabled = true;
+      C.rate(stars, comment.value).then(() => { status.textContent = "Your rating is saved. You can change it."; }).catch((e) => { status.textContent = e.message || "The rating could not be saved. Try again."; })
+        .finally(() => { save.disabled = false; });
+    } });
+    return el("div", { class: "ratebox" }, el("h3", { text: "Rate this course book" }), el("div", { class: "stars-in", role: "group", "aria-label": "Stars" }, ...btns),
+      comment, el("div", { class: "btns" }, save), status,
+      el("p", { class: "tiny muted", text: `Your name is not shown with your comment. The average appears once ${r.min || 5} students have rated.` }));
+  }
+  // each line of a text layer is stretched to the width of the printed line, once the page has a width
+  function fitLayer(fig) {
+    const ro = new ResizeObserver(() => {
+      const W = fig.clientWidth; if (!W) return;
+      $$(".textlayer span", fig).forEach((s) => { const tw = s.getBoundingClientRect().width; if (tw > 0) s.style.transform = `scaleX(${(+s.dataset.w * W / tw).toFixed(4)})`; });
+      ro.disconnect();
+    });
+    ro.observe(fig);
+  }
+  // a search hit shown in place: a box on the words in the block (on a page shown as printed, over the printed line)
+  function showHit(b, v) {
+    setTimeout(() => {
+      $$("mark.sq", stage).forEach((m) => { m.replaceWith(...m.childNodes); });
+      const e = document.getElementById("b-" + b.id), t = b.x || (b.items || []).join(" "), i = t.toLowerCase().indexOf(v);
+      if (e && i >= 0) markText(e, t.slice(i, i + v.length), "sq");
+    }, 450);
+  }
   function applyAnnotations(wrap, n) {
     const find = (bid) => wrap.querySelector(`[data-bid="${bid}"]`);
     list("hl").filter((h) => h.p === n).forEach((h) => { const b = find(h.bid); if (b) markText(b, h.text, "hl c-" + (h.color || "yellow"), { "data-hid": h.id, title: "Highlight: click for options" }, h.off); });
@@ -228,11 +370,14 @@
   function renderScroll() {
     stage.className = "rstage scroll";
     const art = el("article", { class: "pg-scroll", style: { fontSize: 18 * SCALES[prefs.ts] + "px" } });
+    art.style.setProperty("--ts", SCALES[prefs.ts]);                       // (pages shown as printed grow with the text size)
     for (let n = 1; n <= BOOK.npages; n++) {
       if (BOOK.pages[n - 1].kind === "cover") continue;
+      // a printed module's own front pages (cover, contents) are not in the book: no empty pages before its first unit
+      if (blankFront(n)) continue;
       const mark = el("div", { class: "pmark", id: "p-" + n, "data-p": n }, el("span", { text: "p. " + n }), isBm(n) ? icon("mark", "i sm ribbon") : null);
       art.append(mark, pageContent(n));
-      if (!allowedPage(n)) { art.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: u ? "The rest of the book is available to students registered for this course." : "Sign in to read the rest of the book." }), u ? null : el("a", { class: "btn sm", href: C.link("login"), text: "Sign in" }))); break; }
+      if (!allowedPage(n)) { art.append(el("div", { class: "locked-page" }, icon("lock", "i lg"), el("p", { text: access === "register" ? "The rest of the book opens when you have registered for this semester." : u ? "The rest of the book is available to students registered for this course." : "Sign in to read the rest of the book." }), access === "register" ? el("button", { class: "btn sm", type: "button", text: "I have registered", onclick: registerDialog }) : u ? null : el("a", { class: "btn sm", href: C.link("login"), text: "Sign in" }))); break; }
     }
     stage.replaceChildren(el("div", { class: "pagewrap" }, art));
     if (io) io.disconnect();
@@ -242,7 +387,7 @@
       const hs = $$("h3[data-bid]", art).filter((h) => h.getBoundingClientRect().top < line), h = hs[hs.length - 1], P = BOOK.pages[page - 1], hb = h && blocks[h.dataset.bid];
       if (hb && P && P.unit && BOOK.pages[hb.p - 1] && BOOK.pages[hb.p - 1].unit === P.unit) $("#rsub").textContent = `${course.code} · Unit ${P.unit} · ${h.textContent}`; }); };
   }
-  function scrollToPage(n) { const m = document.getElementById("p-" + n) || (n === 1 ? document.getElementById("p-2") : null); if (m) window.scrollTo({ top: m.getBoundingClientRect().top + scrollY - 70, behavior: "auto" }); }
+  function scrollToPage(n) { const m = document.getElementById("p-" + n) || (n === 1 ? document.getElementById("p-2") : $$(".pmark").find((x) => +x.dataset.p >= n)); if (m) window.scrollTo({ top: m.getBoundingClientRect().top + scrollY - 70, behavior: "auto" }); }
 
   // ---------------------------------------------------------------- flip view
   let spreadMode = false, anim = false, full = false;       // full: full screen (see below)
@@ -266,9 +411,10 @@
   }
   function spreadPages(n) {
     if (!spreadMode) return [null, n];
-    if (n === 1) return [null, 1];
-    const left = n % 2 === 0 ? n : n - 1;
-    return [left, left + 1 <= BOOK.npages ? left + 1 : null];
+    const i = POS.get(shownFrom(n)) ?? 0;
+    if (!i) return [null, SEQ[0] || 1];
+    const left = i % 2 === 1 ? i : i - 1;
+    return [SEQ[left], SEQ[left + 1] ?? null];
   }
   function fillPage(box, n) {
     const pin = el("div", { class: "fpin" }, pageContent(n));
@@ -303,7 +449,7 @@
     // A printed page cannot reflow, so larger text stays on the same page and the page scrolls inside the book.
     $$(".fpage", sheet).forEach((pg) => {
       const pin = pg.querySelector(".fpin"); if (!pin) return;
-      let fs = 15 * ts; pin.style.fontSize = fs + "px"; pin.classList.remove("scrolly");
+      let fs = 15 * ts; pin.style.fontSize = fs + "px"; pin.style.setProperty("--ts", ts); pin.classList.remove("scrolly");
       if (ts <= 1 && ph >= PH) while (pin.scrollHeight > pin.clientHeight + 1 && fs > 10.5) { fs -= 0.5; pin.style.fontSize = fs + "px"; }
       const over = pin.scrollHeight > pin.clientHeight + 1;
       pin.classList.toggle("scrolly", over); pg.classList.toggle("more", over && pin.scrollTop + pin.clientHeight < pin.scrollHeight - 4);
@@ -311,15 +457,16 @@
   }
   function turn(dir) {
     if (anim) return;
-    let target = page + dir;
+    // the pages shown, in order (pages with nothing on them are left out)
+    let target = SEQ[(POS.get(shownFrom(page)) ?? 0) + dir];
     if (spreadMode) {
-      // spreads are 1 | 2-3 | 4-5 …: step from the spread's left page, whichever page of it is current
-      const base = spreadPages(page)[0] || 1;
-      target = dir > 0 ? (page === 1 ? 2 : base + 2) : (base <= 3 ? 1 : base - 2);
+      // spreads are 1 | 2-3 | 4-5 … of the pages shown: step from the spread's left page, whichever page of it is current
+      const base = spreadPages(page)[0] || 1, bi = POS.get(base) ?? 0;
+      target = dir > 0 ? (page === 1 ? SEQ[1] : SEQ[bi + 2]) : (bi <= 1 ? 1 : SEQ[bi - 2]);
     }
+    if (target === undefined) { if (dir > 0) C.say("This is the end of the book."); return; }
     if (target === page || target < 1) return;
-    if (target > BOOK.npages) return C.say("This is the end of the book.");
-    if (!allowedPage(target) && dir > 0) return C.say("The rest of the book is locked in preview.");
+    if (!allowedPage(target) && dir > 0) return access === "register" ? registerDialog() : C.say("The rest of the book is locked in preview.");
     const sheet = stage.querySelector(".fsheet"); if (!sheet) { go(target); return; }
     anim = true;
     const leaf = el("div", { class: "leaf " + (dir > 0 ? "fwd" : "back") + (spreadMode ? "" : " solo") });
@@ -415,7 +562,9 @@
     const now = a.join("");
     if (now === all[slug]) return;
     all[slug] = now; ud.set("seen", all);
-    const pr = ud.get("prog", {}); pr[slug] = Math.round(((now.match(/1/g) || []).length / N) * 100); ud.set("prog", pr);
+    // progress counts the pages shown (pages with nothing on them are never turned to)
+    const read = a.filter((c, i) => c === "1" && !EMPTY.has(i + 1)).length;
+    const pr = ud.get("prog", {}); pr[slug] = Math.round((read / Math.max(1, N - EMPTY.size)) * 100); ud.set("prog", pr);
   }
   function setPage(n, scroll = true) {
     page = Math.max(1, Math.min(BOOK.npages, n));
@@ -431,7 +580,15 @@
     }
     if (scroll && view === "scroll") scrollToPage(page);
   }
-  function go(n) { if (!allowedPage(n)) return C.say("That page is locked in preview."); if (view === "flip") { page = n; setPage(n, false); renderFlip(); } else setPage(n, true); }
+  // pages with nothing on them are left out of the book: a printed module's own cover and contents, its course planner,
+  // pages left blank. The pages keep their printed numbers; the book goes on to the next page that has something on it.
+  function blankFront(n) { return EMPTY.has(n); }
+  function shownFrom(n, dir = 1) {
+    for (let k = n; k >= 1 && k <= BOOK.npages; k += dir) if (!EMPTY.has(k)) return k;
+    for (let k = n; k >= 1 && k <= BOOK.npages; k -= dir) if (!EMPTY.has(k)) return k;
+    return 1;
+  }
+  function go(n) { n = shownFrom(Math.max(1, Math.min(BOOK.npages, n)), n < page ? -1 : 1); if (!allowedPage(n)) return access === "register" ? registerDialog() : C.say("That page is locked in preview."); if (view === "flip") { page = n; setPage(n, false); renderFlip(); } else setPage(n, true); }
   slider.addEventListener("change", () => go(+slider.value));
   prevB.addEventListener("click", () => (view === "flip" ? turn(-1) : go(page - 1)));
   nextB.addEventListener("click", () => (view === "flip" ? turn(1) : go(page + 1)));
@@ -589,7 +746,7 @@
     if (view === "flip") { const b = stage.querySelector(".fbook"); if (b) fitBook(b); return; }
     const art = stage.querySelector(".pg-scroll"); if (!art) return;
     const m = document.getElementById("p-" + page), before = m ? m.getBoundingClientRect().top : null;
-    art.style.fontSize = 18 * SCALES[prefs.ts] + "px";
+    art.style.fontSize = 18 * SCALES[prefs.ts] + "px"; art.style.setProperty("--ts", SCALES[prefs.ts]);   // (pages shown as printed grow with it)
     if (m) window.scrollBy(0, m.getBoundingClientRect().top - before);       // keep the same page in view
   }
   function sizeControl() {
@@ -608,20 +765,84 @@
     tpop.style.top = r.bottom + 6 + "px"; tpop.style.left = Math.max(8, Math.min(innerWidth - tpop.offsetWidth - 8, r.left + r.width / 2 - tpop.offsetWidth / 2)) + "px";
   });
   darkBtn.addEventListener("click", () => { prefs.dark = !prefs.dark; root.classList.toggle("night", prefs.dark); darkBtn.setAttribute("aria-pressed", String(prefs.dark)); savePrefs(); });
+  // Read aloud: the page's text sentence by sentence (browsers stop a long passage part-way, silently: Chrome after about
+  // fifteen seconds), then the following pages, turning to each, until stopped or the end of what may be read. The
+  // voice (the device's English voices), its pitch and speed are chosen in Reader options.
+  const PITCH = { normal: 1, deep: 0.7, higher: 1.25 }, RATE = { slower: 0.8, normal: 0.95, faster: 1.15 };
+  const englishVoices = () => ("speechSynthesis" in window ? speechSynthesis.getVoices() : []).filter((v) => /^en([-_]|$)/i.test(v.lang));
+  const chosenVoice = () => { const vs = englishVoices(); return vs.find((v) => v.voiceURI === prefs.voice) || vs.find((v) => /en[-_]GB/i.test(v.lang)) || vs[0] || null; };
+  const pageText = (n) => pageBlocks(n).map((id) => blocks[id].x || (blocks[id].items || []).join(". ")).join(" ").replace(/\s+/g, " ").trim();
+  function sentences(text) {
+    const out = [];
+    for (const s of text.match(/[^.!?;:]+[.!?;:]*["”’)]*\s*/g) || [text]) {
+      let t = s.trim();
+      while (t.length > 220) {                         // a long sentence: at a comma or a space
+        let k = t.lastIndexOf(", ", 220); if (k < 80) k = t.lastIndexOf(" ", 220); if (k < 40) k = 220;
+        out.push(t.slice(0, k + 1)); t = t.slice(k + 1).trim();
+      }
+      if (t) { if (out.length && out[out.length - 1].length + t.length < 160) out[out.length - 1] += " " + t; else out.push(t); }
+    }
+    return out;
+  }
+  let readQueue = [], readPage = 0;
+  function stopReading() { readQueue = []; speaking = false; if ("speechSynthesis" in window) speechSynthesis.cancel(); speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); }
+  function speakNext() {
+    if (!speaking) return;
+    const t = readQueue.shift();
+    if (t === undefined) return readFrom(readPage + 1, false);
+    const utt = new SpeechSynthesisUtterance(t), v = chosenVoice();
+    if (v) { utt.voice = v; utt.lang = v.lang; } else utt.lang = "en-GB";
+    utt.pitch = PITCH[prefs.vpitch] || 1; utt.rate = RATE[prefs.vrate] || 0.95;
+    utt.onend = speakNext;
+    utt.onerror = (e) => { if (speaking && e.error !== "interrupted" && e.error !== "canceled") speakNext(); };
+    speechSynthesis.speak(utt);
+  }
+  function readFrom(n, first) {
+    const last = BOOK.pages.length;
+    while (n <= last && allowedPage(n) && !pageText(n)) n++;            // (pages with nothing to read: a picture, a blank)
+    if (n > last || !allowedPage(n)) { stopReading(); if (!first) C.say("Read aloud finished."); return false; }
+    readPage = n; readQueue = sentences(pageText(n));
+    if (!first && n !== page) go(n);                                    // keep the page being read in view
+    speakNext();
+    return true;
+  }
+  window.addEventListener("pagehide", () => { if (speaking) stopReading(); });   // (some browsers go on reading after the page is left)
   speakBtn.addEventListener("click", () => {
     if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
-    if (speaking) { speechSynthesis.cancel(); speaking = false; speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); return; }
-    const ps = view === "flip" ? spreadPages(page).filter(Boolean) : [page, page + 1];
-    const text = ps.filter(allowedPage).flatMap((n) => pageBlocks(n).map((id) => blocks[id].x || (blocks[id].items || []).join(". "))).join(" ");
-    if (!text) return C.say("Nothing to read on this page.");
-    const utt = new SpeechSynthesisUtterance(text); utt.lang = "en-GB"; utt.rate = 0.95;
-    utt.onend = () => { speaking = false; speakBtn.setAttribute("aria-pressed", "false"); speakBtn.classList.remove("on"); };
-    speechSynthesis.cancel(); speechSynthesis.speak(utt); speaking = true; speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on"); C.say("Reading aloud. Press again to stop.");
+    if (speaking) return stopReading();
+    speechSynthesis.cancel();
+    speaking = true; speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on");
+    const from = view === "flip" ? (spreadPages(page).filter(Boolean)[0] || page) : page;
+    if (!readFrom(from, true)) return C.say("Nothing to read on this page.");
+    C.say("Reading aloud. Press again to stop.");
   });
+  // the voice, pitch and speed (Reader options): the device's English voices, each with a deeper or higher pitch
+  function voiceControl() {
+    const sel = el("select", { class: "input", "aria-label": "Voice" });
+    const fill = () => {
+      const vs = englishVoices(), cur = chosenVoice();
+      sel.replaceChildren(...(vs.length ? vs.map((v) => el("option", { value: v.voiceURI, text: `${v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+Online.*$/, "")} (${v.lang})`, selected: cur && v.voiceURI === cur.voiceURI })) : [el("option", { value: "", text: "The device's voice" })]));
+    };
+    fill();
+    if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fill);
+    sel.addEventListener("change", () => { prefs.voice = sel.value; savePrefs(); });
+    const choice = (key, options, label) => el("select", { class: "input", "aria-label": label, onchange: (e) => { prefs[key] = e.target.value; savePrefs(); } },
+      ...Object.keys(options).map((k) => el("option", { value: k, text: k[0].toUpperCase() + k.slice(1), selected: (prefs[key] || "normal") === k })));
+    const tryIt = el("button", { class: "btn ghost sm", type: "button", text: "Try it", onclick: () => {
+      if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
+      stopReading(); const u2 = new SpeechSynthesisUtterance("This is how the course book will be read to you."), v = chosenVoice();
+      if (v) { u2.voice = v; u2.lang = v.lang; } u2.pitch = PITCH[prefs.vpitch] || 1; u2.rate = RATE[prefs.vrate] || 0.95; speechSynthesis.speak(u2);
+    } });
+    return el("div", { class: "voicectl" }, el("span", { class: "small", text: "Read-aloud voice" }), sel,
+      el("div", { class: "row2" }, el("label", { class: "small" }, "Pitch ", choice("vpitch", PITCH, "Pitch")), el("label", { class: "small" }, "Speed ", choice("vrate", RATE, "Speed")), tryIt));
+  }
   more.addEventListener("click", () => C.modal({ title: "Reader options", body: el("div", { class: "stack" },
     sizeControl(),
     el("button", { class: "btn sec block", onclick: () => darkBtn.click() }, icon("sun"), "Night mode"),
     el("button", { class: "btn sec block", onclick: () => speakBtn.click() }, icon("head"), "Read aloud"),
+    voiceControl(),
+    rating() && rating().can ? el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click();
+      setTimeout(() => C.modal({ title: "Rate this course book", body: rateBox(), actions: [{ label: "Close", id: 1 }] }), 50); } }, "★ Rate this course book") : null,
     el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(toggleFull, 50); } }, icon("full"), "Full screen"),
     // on phones the Print button is not in the bar: the same watermarked study copy (quota 2) from here
     el("button", { class: "btn sec block", onclick: () => { document.querySelector(".ov.open .mhead button")?.click(); setTimeout(() => prBtn.click(), 50); } }, icon(canPrint ? "print" : "lock"), "Print a study copy"),
@@ -663,6 +884,8 @@
   // ---------------------------------------------------------------- boot
   C.ready(async () => {
     try { BOOK = await C.loadBook(slug); } catch (e) { stage.replaceChildren(el("p", { class: "pad", text: e.message })); return; }
+    EMPTY = new Set(BOOK.units.length ? BOOK.pages.filter((p) => p.kind === "text" && !p.blocks.length).map((p) => p.n) : []);
+    SEQ = BOOK.pages.map((p) => p.n).filter((n) => !EMPTY.has(n)); POS = new Map(SEQ.map((n, i) => [n, i]));
     BOOK.units.forEach((un) => un.blocks.forEach((b) => (blocks[b.id] = b)));
     slider.max = BOOK.npages;
     if (u) { const bms = list("bm"); if (bms.some((b) => !b.id)) { bms.forEach((b) => (b.id = b.id || C.uid("b"))); save("bm", bms); } }
@@ -671,6 +894,7 @@
     let target = null;
     if (qu && BOOK.units[qu - 1]) { const h = qs && blocks[`u${qu}s${qs}`]; target = h ? h.p : BOOK.units[qu - 1].page; }
     page = qp && qp >= 1 ? Math.min(qp, BOOK.npages) : target || (u ? (ud.get("pos", {})[slug] || 1) : 1);
+    page = shownFrom(page);
     if (!allowedPage(page)) page = 1;
     $$("[data-v]", seg).forEach((b) => { b.classList.toggle("on", b.dataset.v === view); b.setAttribute("aria-pressed", String(b.dataset.v === view)); });
     render(); setPage(page, true);

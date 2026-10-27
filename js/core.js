@@ -144,6 +144,8 @@
   const toast = el("div", { class: "pt-toast", role: "status", "aria-live": "polite" });
   document.body.append(toast);
   let tt;
+  C.regcheck = async () => ({ result: "unregistered", message: "This is the prototype: registrations are checked on the real site." });
+  C.regreport = async () => true;
   C.say = (msg, ms = 3000) => { toast.textContent = msg; toast.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => toast.classList.remove("show"), ms); };
   document.addEventListener("click", (e) => { const t = e.target.closest("[data-toast]"); if (t) { e.preventDefault(); C.say(t.getAttribute("data-toast")); } });
 
