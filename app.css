@@ -747,6 +747,9 @@ body.printpage{background:#E9E9EF}
 /* the Dashboard heading is the programme, linked to its page */
 .h1link{color:inherit;text-decoration:none}
 .h1link:hover,.h1link:focus-visible{text-decoration:underline}
+/* a long unbroken string (answer lines of dots "1. …………", web addresses) breaks at the edge of the page: on a phone it
+   otherwise widened the whole page, the footer ran off the screen and taps landed beside what was drawn */
+.pcontent p,.pcontent li,.pcontent h3,.pcontent h4,.pcontent blockquote{overflow-wrap:anywhere}
 
 /* tables and pictures in course books imported from Word */
 .pcontent .btable{overflow-x:auto;margin:.6em 0}

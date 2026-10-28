@@ -90,7 +90,7 @@
     root.style.setProperty("--wm-night", tile("rgba(255,255,255,0.10)"));
   }
   const banner = T("draftBanner", "") ? el("div", { class: "banner warn flat" }, icon("pen", "i lg"), el("div", { class: "small" }, el("b", { text: T("draftBanner", "") })))
-    : access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. Downloading, printing and the AI assistant are not available in this period."))
+    : access === "retro" ? el("div", { class: "banner warn flat" }, icon("eye", "i lg"), el("div", { class: "small" }, el("b", { text: T("retroBanner", "Retrospective access: read-only until 30 April 2027. ") }), "Your bookmarks, highlights and notes are kept. " + (T("download", true) === false ? "Printing" : "Downloading, printing") + " and the AI assistant are not available in this period."))
     : access === "register" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Unit 1 only. " }), "You have not registered for this semester. ", el("a", { href: "#", text: "I have registered", onclick: (e) => { e.preventDefault(); registerDialog(); } })))
     : access === "preview" ? el("div", { class: "banner warn flat" }, icon("lock", "i lg"), el("div", { class: "small" }, el("b", { text: "Preview. " }), u ? "You are not registered for this course this semester, so only Unit 1 is available." : "Sign in to read the full course book. Only Unit 1 is available in preview."))
       : null;
@@ -169,7 +169,7 @@
         el("button", { class: "btn sec sm", onclick: () => addNote() }, icon("note"), "New note"),
         el("button", { class: "btn ghost sm", onclick: exportNotes }, icon("dl"), "Export")));
       pbody.append(el("div", { class: "label pad0", text: `Notes (${notes.length})` }));
-      if (!notes.length) pbody.append(el("p", { class: "small muted pad", text: "No notes yet. Select some text and choose Add note, or use the note button in the toolbar." }));
+      if (!notes.length) pbody.append(el("p", { class: "small muted pad", text: "No notes yet. Select some text and choose Note, or use the note button in the toolbar." }));
       notes.sort((a, b) => a.p - b.p).forEach((n) => {
         const it = el("div", { class: "bm note-item" },
           el("b", { text: `p. ${n.p} · ${C.fmt(n.upd || n.at)}` }), n.quote ? el("q", { text: clip(n.full || n.quote, 140) }) : null, el("span", { class: "ntext", text: n.text }),
@@ -709,10 +709,15 @@
     if (text.length > 1500) { C.say("That selection is too long. Select up to about 250 words."); return null; }
     return { parts, text, bid: parts[0].bid, p: parts[0].p, off: parts[0].off, rect: range.getBoundingClientRect() };
   }
+  // phones and tablets: a long press selects without a touchend (the press becomes the selection) and the browser moves
+  // the handles itself, so the bar follows the selection once it stops changing; it goes under the selection, below the
+  // handles, because the browser's own menu (copy, share) sits above it
+  const touchy = matchMedia("(pointer: coarse)").matches;
   function openSelbar(s) {
     selbar.classList.add("open"); selbar.classList.toggle("edit", !!s.existing);
     $$(".hdot", selbar).forEach((d) => d.classList.toggle("on", !!s.existing && d.dataset.c === s.color));
     let top = s.rect.top - selbar.offsetHeight - 10; if (top < 8) top = Math.min(innerHeight - selbar.offsetHeight - 8, s.rect.bottom + 10);
+    if (touchy && !s.existing) { top = s.rect.bottom + 34; if (top + selbar.offsetHeight > innerHeight - 8) top = Math.max(8, s.rect.top - selbar.offsetHeight - 64); }
     const left = Math.min(innerWidth - selbar.offsetWidth - 8, Math.max(8, s.rect.left + s.rect.width / 2 - selbar.offsetWidth / 2));
     selbar.style.top = Math.max(8, top) + "px"; selbar.style.left = left + "px";
   }
@@ -723,7 +728,12 @@
   document.addEventListener("touchend", () => setTimeout(showSel, 250));
   let barPress = false;
   selbar.addEventListener("pointerdown", () => { barPress = true; setTimeout(() => (barPress = false), 800); });
-  document.addEventListener("selectionchange", () => { if (barPress) return; if (!window.getSelection().toString() && !(pendingSel && pendingSel.existing)) closeSelbar(); });
+  let selT = 0;
+  document.addEventListener("selectionchange", () => {
+    if (barPress) return;
+    if (!window.getSelection().toString() && !(pendingSel && pendingSel.existing)) closeSelbar();
+    if (touchy) { clearTimeout(selT); selT = setTimeout(showSel, 400); }
+  });
   const dismiss = (e) => { if (!selbar.contains(e.target) && pendingSel && pendingSel.existing) { pendingSel = null; closeSelbar(); } if (!tpop.contains(e.target) && !sizeBtn.contains(e.target)) tpop.classList.remove("open"); };
   document.addEventListener("mousedown", dismiss); document.addEventListener("touchstart", dismiss, { passive: true });
   // click an existing highlight to change its colour, bookmark it, attach a note, ask the AI or remove it
@@ -1020,7 +1030,7 @@
         el("div", { class: "banner" + (used >= quota ? " warn" : "") }, icon("print", "i lg"), el("div", { class: "small" }, el("b", { text: `You have used ${used} of ${quota} print copies of this book this semester. ` }), "Printing is at your own cost. Copies are for personal study only; reproduction for sale is prohibited."))),
       el("div", { class: "thumb" }, ...Array.from({ length: 11 }, (_, i) => el("div", { class: "ln", style: { width: [40, 75, 100, 100, 85, 100, 70, 100, 100, 60, 90][i] + "%" } })),
         el("div", { class: "diag", text: `${u.n.toUpperCase()} · ${u.id} · PERSONAL STUDY COPY` }), el("div", { class: "ft" }, el("span", { text: `${u.n} · ${u.id} · ${C.fmt(Date.now())}` }), el("span", { text: "Copy ID on print" })))),
-      actions: [{ label: "Cancel", cls: "ghost", id: null }, { label: "Create print-ready copy", value: () => {
+      actions: used >= quota && access !== "staff" ? [{ label: "Close", cls: "ghost", id: null }] : [{ label: "Cancel", cls: "ghost", id: null }, { label: "Create print-ready copy", value: () => {
         if (used >= quota && access !== "staff") { C.say("You have used your print quota for this book this semester."); return false; }
         const units = boxes.filter((b) => b.cb.checked).map((b) => b.un.n); if (!units.length) { C.say("Select at least one unit."); return false; }
         return units;
