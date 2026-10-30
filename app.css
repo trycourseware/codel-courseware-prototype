@@ -446,8 +446,16 @@ body.reader .pt-bar{bottom:66px}body.reader .pt-menu{bottom:116px}body.reader .p
 .leaf.solo{left:0;transform-origin:0 50%}
 .leaf.fwd.go{transform:rotateY(-180deg)}
 .leaf.back.go{transform:rotateY(180deg)}
-.leaf.solo.go{transform:rotateY(-100deg);opacity:0;transition:transform .6s ease-in,opacity .6s ease-in}
-.leaf .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:0 0 30px rgba(0,0,0,.15)}
+.leaf.solo.fwd.go{transform:rotateY(-160deg)}
+.leaf.solo.back{transform:rotateY(-160deg)}
+.leaf.solo.back.go{transform:rotateY(0)}
+.leaf .face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:-6px 0 18px rgba(0,0,0,.28),0 0 30px rgba(0,0,0,.15)}
+.leaf .backf{background:#F3F1EC}
+/* the turning page darkens along its hinge, like paper lifting from the book */
+.leaf .face::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(to right,rgba(0,0,0,.28),rgba(0,0,0,.06) 35%,transparent 60%);opacity:0;transition:opacity .7s ease}
+.leaf.go .face::after{opacity:1}
+.leaf.solo.back .face::after{opacity:1}
+.leaf.solo.back.go .face::after{opacity:0}
 .leaf .backf{transform:rotateY(180deg)}
 .ribbon-btn{position:absolute;top:0;right:26px;width:22px;height:40px;background:var(--scarlet);border:0;cursor:pointer;clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%);z-index:2}
 /* night mode */
@@ -846,3 +854,6 @@ body.printpage{background:#E9E9EF}
 .rplayer input[type=range],.voicectl input[type=range]{width:110px;accent-color:var(--navy,#232263)}
 .reader-root.night .rplayer{background:#23232E;color:#E3E3EA}
 @media (max-width:600px){.rplayer{left:8px;right:8px;transform:none;max-width:none;bottom:60px;gap:6px;padding:8px}.rplayer .input{flex:1 1 40%}.rplayer input[type=range]{width:120px}}
+
+/* a swipe to the right in flip view turns the page; it must not be the browser's back gesture */
+.reader-root, .rstage { overscroll-behavior-x: none; }

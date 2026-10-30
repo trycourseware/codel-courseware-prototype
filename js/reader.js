@@ -410,9 +410,14 @@
     if (L) fillPage(lp, L); else lp.classList.add("blank");
     if (R) fillPage(rp, R); else rp.classList.add("blank");
     if (spreadMode) sheet.append(lp, rp); else sheet.append(rp.childNodes.length ? rp : lp);
-    book.append(sheet,
-      el("button", { class: "fnav prev", "aria-label": "Previous page", onclick: () => turn(-1) }, icon("back", "i lg")),
-      el("button", { class: "fnav next", "aria-label": "Next page", onclick: () => turn(1) }, icon("chev", "i lg")));
+    // the arrows are off at the ends of the book (the last spread had a live Next that did nothing)
+    const idx = POS.get(shownFrom(page)) ?? 0, lastShown = SEQ[SEQ.length - 1];
+    const atEnd = spreadMode ? (R || L) >= lastShown : idx >= SEQ.length - 1;
+    const prevA = el("button", { class: "fnav prev", "aria-label": "Previous page", onclick: () => turn(-1) }, icon("back", "i lg"));
+    const nextA = el("button", { class: "fnav next", "aria-label": "Next page", onclick: () => turn(1) }, icon("chev", "i lg"));
+    if (idx <= 0) prevA.disabled = true;
+    if (atEnd) nextA.disabled = true;
+    book.append(sheet, prevA, nextA);
     stage.replaceChildren(book);
     fitBook(book);
   }
@@ -479,22 +484,25 @@
     const leaf = el("div", { class: "leaf " + (dir > 0 ? "fwd" : "back") + (spreadMode ? "" : " solo") });
     const front = el("div", { class: "face front fpage" }), backf = el("div", { class: "face backf fpage" });
     const [L0, R0] = spreadPages(page), [L1, R1] = spreadPages(target);
+    // one page at a time (phones): forward, the page turns away to the left and shows the next one under it; back, the
+    // earlier page comes in from the left and lies over the current one (29 October 2026: both used to turn left)
     if (dir > 0) { if (R0 || !spreadMode) fillPage(front, spreadMode ? R0 : page); if (spreadMode && L1) fillPage(backf, L1); }
-    else { if (spreadMode ? L0 : page) fillPage(front, spreadMode ? L0 : page); if (spreadMode && R1) fillPage(backf, R1); }
+    else if (!spreadMode) { fillPage(front, target); }
+    else { if (L0) fillPage(front, L0); if (R1) fillPage(backf, R1); }
     leaf.append(front, backf);
     // underneath: show the destination pages already
     if (spreadMode) {
       const under = dir > 0 ? sheet.querySelector(".right") : sheet.querySelector(".left");
       const dest = dir > 0 ? R1 : L1;
       if (under) { if (dest) fillPage(under, dest); else { under.replaceChildren(); under.classList.add("blank"); } }
-    } else {
+    } else if (dir > 0) {
       const under = sheet.querySelector(".fpage"); if (under) fillPage(under, target);
     }
     sheet.append(leaf);
     fitBook(stage.querySelector(".fbook"));
     requestAnimationFrame(() => requestAnimationFrame(() => leaf.classList.add("go")));
     const done = () => { anim = false; setPage(target, false); renderFlip(); };
-    leaf.addEventListener("transitionend", done, { once: true });
+    leaf.addEventListener("transitionend", (e) => { if (e.target === leaf && e.propertyName === "transform") done(); });
     setTimeout(() => { if (anim) done(); }, 900);
   }
   let tx = null;
@@ -736,6 +744,7 @@
   });
   const dismiss = (e) => { if (!selbar.contains(e.target) && pendingSel && pendingSel.existing) { pendingSel = null; closeSelbar(); } if (!tpop.contains(e.target) && !sizeBtn.contains(e.target)) tpop.classList.remove("open"); };
   document.addEventListener("mousedown", dismiss); document.addEventListener("touchstart", dismiss, { passive: true });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") tpop.classList.remove("open"); });
   // click an existing highlight to change its colour, bookmark it, attach a note, ask the AI or remove it
   stage.addEventListener("click", (e) => {
     const m = e.target.closest("mark.hl"); if (!m || window.getSelection().toString()) return;
@@ -817,11 +826,19 @@
   const voiceKind = (v) => (FEMALE.test(v.name) ? "female" : MALE.test(v.name) ? "male" : "");
   const rateOf = () => (typeof prefs.vrate === "number" ? prefs.vrate : { slower: 0.8, normal: 1, faster: 1.2 }[prefs.vrate] || 1);
   const voiceName = (v) => v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+Online.*$/, "").replace(/\s+-\s+English.*$/, "");
-  // the voice to use: one the student picked, else the device's best English voice of the kind asked for (African or
-  // British English and natural voices first), else another English voice with its pitch moved towards that kind
+  // the voice to use: one the student picked, else the device's best English voice of the kind and accent asked for
+  // (British English by default, 29 October 2026: the user did not want the Nigerian voice Android offers first;
+  // natural voices first), else another English voice with its pitch moved towards that kind
+  const ACCENTS = { gb: ["British", [/en[-_]GB/i, /en[-_](IE|AU|NZ)/i, /en[-_]US/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
+    us: ["American", [/en[-_]US/i, /en[-_]CA/i, /en[-_]GB/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
+    gh: ["African", [/en[-_](GH|KE|ZA)/i, /en[-_]NG/i, /en[-_]GB/i, /^en/i]],
+    any: ["Any", [/^en/i]] };
+  const accentOf = () => ACCENTS[prefs.vaccent] ? prefs.vaccent : "gb";
   function voicePlan() {
     const vs = englishVoices(), kind = prefs.vkind === "male" ? "male" : "female";
-    const rank = (v) => (/en[-_](GH|NG|KE|ZA)/i.test(v.lang) ? 0 : /en[-_]GB/i.test(v.lang) ? 1 : 2) + (/natural|online|neural/i.test(v.name) ? 0 : 0.5);
+    const order = ACCENTS[accentOf()][1];
+    // the lowest matching step of the accent's order (a voice of an accent listed later is used only when none earlier exists)
+    const rank = (v) => { let i = order.findIndex((re) => re.test(v.lang)); if (i < 0) i = order.length; return i + (/natural|online|neural/i.test(v.name) ? 0 : 0.5); };
     const pick = prefs.voice ? vs.find((v) => v.voiceURI === prefs.voice) : null;
     const ofKind = vs.filter((v) => voiceKind(v) === kind).sort((a, b) => rank(a) - rank(b));
     const v = pick || ofKind[0] || vs.slice().sort((a, b) => rank(a) - rank(b))[0] || null;
@@ -967,6 +984,9 @@
     fill();
     if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fill);
     kind.addEventListener("change", () => { prefs.vkind = kind.value; prefs.voice = ""; dev.value = ""; savePrefs(); respeak(); });
+    const accent = el("select", { class: "input", "aria-label": "Accent" }, ...Object.entries(ACCENTS).map(([k, a]) => el("option", { value: k, text: a[0] + " accent" })));
+    accent.value = accentOf();
+    accent.addEventListener("change", () => { prefs.vaccent = accent.value; prefs.voice = ""; dev.value = ""; savePrefs(); respeak(); });
     dev.addEventListener("change", () => {
       prefs.voice = dev.value;
       const v = englishVoices().find((x) => x.voiceURI === dev.value); if (v && voiceKind(v)) { prefs.vkind = voiceKind(v); kind.value = prefs.vkind; }
@@ -980,12 +1000,12 @@
     speed.addEventListener("input", () => { out.textContent = (+speed.value).toFixed(1) + "×"; });
     speed.addEventListener("change", () => { prefs.vrate = +speed.value; out.textContent = prefs.vrate.toFixed(1) + "×"; savePrefs(); respeak(); });
     const speedBox = el("label", { class: "small rspeed" }, "Speed ", speed, out);
-    if (compact) return [kind, tone, speedBox];
+    if (compact) return [kind, accent, tone, speedBox];
     const tryIt = el("button", { class: "btn ghost sm", type: "button", text: "Try it", onclick: () => {
       if (!("speechSynthesis" in window)) return C.say("Read aloud is not supported in this browser.");
       stopReading(); utter("This is how the course book will be read to you.");
     } });
-    return el("div", { class: "voicectl" }, el("span", { class: "small", text: "Read-aloud voice" }), el("div", { class: "row2" }, kind, tone), dev,
+    return el("div", { class: "voicectl" }, el("span", { class: "small", text: "Read-aloud voice" }), el("div", { class: "row2" }, kind, accent), el("div", { class: "row2" }, tone, dev),
       el("div", { class: "row2" }, speedBox, tryIt),
       el("p", { class: "tiny muted", text: "Read aloud starts at the word you last clicked, or reads only the text you have selected." }));
   }

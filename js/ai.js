@@ -292,7 +292,7 @@ Rules:
       if (ctx) ctxBar.append(icon("pen", "i sm"), el("div", {}, el("b", { text: `Discussing a passage on page ${ctx.p}` }), el("q", { text: clip(ctx.text, 170) })),
         el("button", { class: "icon-btn dark sm", "aria-label": "Stop discussing this passage", onclick: () => { ctx = null; opts.context = null; if (opts.onClearContext) opts.onClearContext(); drawCtx(); } }, icon("x")));
       const list = ctx ? ["Explain this passage", "Give me an example", "Summarise it simply", "Quiz me on this", "How could this be examined?"]
-        : compact ? [] : ["Summarise Unit 1", "What is on page 6?", "Explain the key ideas of Unit 2", "Quiz me on this course", "Which past questions came on Unit 4?"];
+        : compact ? ["Summarise this unit", "Quiz me on this unit", "Explain the key terms"] : ["Summarise Unit 1", "What is on page 6?", "Explain the key ideas of Unit 2", "Quiz me on this course", "Which past questions came on Unit 4?"];
       chips.replaceChildren(...list.map((t) => el("button", { class: "pill", onclick: () => { ta.value = t; ask(); } }, t)));
       ta.placeholder = ctx ? "Ask about this passage" : "Ask about this course book";
     };
