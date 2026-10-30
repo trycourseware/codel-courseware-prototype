@@ -831,14 +831,15 @@
   // natural voices first), else another English voice with its pitch moved towards that kind
   const ACCENTS = { gb: ["British", [/en[-_]GB/i, /en[-_](IE|AU|NZ)/i, /en[-_]US/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
     us: ["American", [/en[-_]US/i, /en[-_]CA/i, /en[-_]GB/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
-    gh: ["African", [/en[-_](GH|KE|ZA)/i, /en[-_]NG/i, /en[-_]GB/i, /^en/i]],
+    // Ghanaian first (en-GH, or "Ghana" in the voice's name), then other African English voices, Nigerian last among them
+    gh: ["Ghanaian or African", [/en[-_]GH|Ghana/i, /en[-_](KE|ZA|TZ|UG)/i, /en[-_]NG/i, /en[-_]GB/i, /^en/i]],
     any: ["Any", [/^en/i]] };
   const accentOf = () => ACCENTS[prefs.vaccent] ? prefs.vaccent : "gb";
   function voicePlan() {
     const vs = englishVoices(), kind = prefs.vkind === "male" ? "male" : "female";
     const order = ACCENTS[accentOf()][1];
     // the lowest matching step of the accent's order (a voice of an accent listed later is used only when none earlier exists)
-    const rank = (v) => { let i = order.findIndex((re) => re.test(v.lang)); if (i < 0) i = order.length; return i + (/natural|online|neural/i.test(v.name) ? 0 : 0.5); };
+    const rank = (v) => { let i = order.findIndex((re) => re.test(v.lang + " " + v.name)); if (i < 0) i = order.length; return i + (/natural|online|neural/i.test(v.name) ? 0 : 0.5); };
     const pick = prefs.voice ? vs.find((v) => v.voiceURI === prefs.voice) : null;
     const ofKind = vs.filter((v) => voiceKind(v) === kind).sort((a, b) => rank(a) - rank(b));
     const v = pick || ofKind[0] || vs.slice().sort((a, b) => rank(a) - rank(b))[0] || null;
