@@ -786,6 +786,32 @@
     C.say("Up to about 250 words can be copied at a time: the first part was copied, with its source.", 5000);
   });
 
+  // The browser's own menu and saving (the user's request, 31 October 2026): a right-click brings up the browser's menu,
+  // whose "Save as", "Save image as" and "Print" hand out the page or a page picture. In the reader they are off for
+  // students; a right-click on selected text shows the reader's own bar (highlight, note, read aloud, ask) instead. The
+  // keyboard shortcuts for saving and printing the page are off too (Ctrl+P opens the watermarked study copy where a
+  // student may print), and a page picture cannot be dragged out of the page. Staff keep the browser's menu. A long
+  // press on a phone (which selects text and brings up the browser's copy menu) is left to the browser, except on
+  // pictures. The screen can still be photographed: the watermark names whose copy it is.
+  if (access !== "staff") {
+    let lastTouch = 0;
+    document.addEventListener("touchstart", () => { lastTouch = Date.now(); }, { passive: true, capture: true });
+    document.addEventListener("contextmenu", (e) => {
+      if (Date.now() - lastTouch < 1500 && !e.target.closest("img")) return;
+      e.preventDefault();
+      const s = readSelection(); if (s) { pendingSel = s; openSelbar(s); }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.key || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k !== "s" && k !== "p") return;
+      e.preventDefault();
+      if (k === "p") { if (canPrint) prBtn.click(); else C.say(T("noPrint", "Printing is not available for this copy.")); }
+      else C.say("Saving the book is not available. Bookmarks, highlights and notes are kept for you.");
+    }, true);
+    stage.addEventListener("dragstart", (e) => { if (e.target.closest("img")) e.preventDefault(); });
+  }
+
   // ---------------------------------------------------------------- tools
   function applySize() {
     if (view === "flip") { const b = stage.querySelector(".fbook"); if (b) fitBook(b); return; }
