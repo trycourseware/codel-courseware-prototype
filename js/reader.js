@@ -853,14 +853,16 @@
   const rateOf = () => (typeof prefs.vrate === "number" ? prefs.vrate : { slower: 0.8, normal: 1, faster: 1.2 }[prefs.vrate] || 1);
   const voiceName = (v) => v.name.replace(/^(Microsoft|Google)\s+/, "").replace(/\s+Online.*$/, "").replace(/\s+-\s+English.*$/, "");
   // the voice to use: one the student picked, else the device's best English voice of the kind and accent asked for
-  // (British English by default, 29 October 2026: the user did not want the Nigerian voice Android offers first;
-  // natural voices first), else another English voice with its pitch moved towards that kind
-  const ACCENTS = { gb: ["British", [/en[-_]GB/i, /en[-_](IE|AU|NZ)/i, /en[-_]US/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
+  // (Ghanaian or African English by default, 1 November 2026, the user's decision: a device with an African voice,
+  // such as the Nigerian one on Android, uses it; others fall back to British; natural voices first), else another
+  // English voice with its pitch moved towards that kind
+  const ACCENTS = {
+    // Ghanaian first (en-GH, or "Ghana" in the voice's name), then other African English voices, then British
+    gh: ["Ghanaian or African", [/en[-_]GH|Ghana/i, /en[-_](NG|KE|ZA|TZ|UG)/i, /en[-_]GB/i, /^en/i]],
+    gb: ["British", [/en[-_]GB/i, /en[-_](IE|AU|NZ)/i, /en[-_]US/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
     us: ["American", [/en[-_]US/i, /en[-_]CA/i, /en[-_]GB/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
-    // Ghanaian first (en-GH, or "Ghana" in the voice's name), then other African English voices, Nigerian last among them
-    gh: ["Ghanaian or African", [/en[-_]GH|Ghana/i, /en[-_](KE|ZA|TZ|UG)/i, /en[-_]NG/i, /en[-_]GB/i, /^en/i]],
     any: ["Any", [/^en/i]] };
-  const accentOf = () => ACCENTS[prefs.vaccent] ? prefs.vaccent : "gb";
+  const accentOf = () => ACCENTS[prefs.vaccent] ? prefs.vaccent : "gh";
   function voicePlan() {
     const vs = englishVoices(), kind = prefs.vkind === "male" ? "male" : "female";
     const order = ACCENTS[accentOf()][1];
@@ -879,7 +881,7 @@
   function accentHas(k, v) {
     if (k === "any") return true;
     const i = ACCENTS[k][1].findIndex((re) => re.test(v.lang + " " + v.name));
-    return i === 0 || (k === "gh" && i >= 0 && i <= 2);
+    return i === 0 || (k === "gh" && i === 1);
   }
   const accentOnDevice = (k) => k === "any" || englishVoices().some((v) => accentHas(k, v));
   // a block's text to read; headings and list items end with a full stop, so the voice pauses after them
