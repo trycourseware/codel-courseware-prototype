@@ -871,8 +871,17 @@
     const v = pick || ofKind[0] || vs.slice().sort((a, b) => rank(a) - rank(b))[0] || null;
     const fake = !pick && !ofKind.length && !!v;
     const pitch = (PITCH[prefs.vpitch] || 1) * (fake ? (kind === "male" ? 0.7 : 1.2) : 1);
-    return { v, kind, fake, pitch: Math.max(0.1, Math.min(2, pitch)), rate: rateOf() };
+    // whether the voice has the accent asked for (a device without it falls back to the nearest English voice)
+    const accentOk = !v || accentHas(accentOf(), v);
+    return { v, kind, fake, accentOk, accent: ACCENTS[accentOf()][0], pitch: Math.max(0.1, Math.min(2, pitch)), rate: rateOf() };
   }
+  // whether a voice counts as having an accent: the accent's own voices, or for "Ghanaian or African" any African English voice
+  function accentHas(k, v) {
+    if (k === "any") return true;
+    const i = ACCENTS[k][1].findIndex((re) => re.test(v.lang + " " + v.name));
+    return i === 0 || (k === "gh" && i >= 0 && i <= 2);
+  }
+  const accentOnDevice = (k) => k === "any" || englishVoices().some((v) => accentHas(k, v));
   // a block's text to read; headings and list items end with a full stop, so the voice pauses after them
   const stopped = (t) => { t = String(t || "").trim(); return !t || /[.!?;:]["”’)]*$/.test(t) ? t : t + "."; };
   const blockText = (id) => { const b = blocks[id]; if (!b) return ""; if (b.items) return b.items.map(stopped).join(" "); return b.t === "h" ? stopped(b.x) : b.x || ""; };
@@ -923,7 +932,8 @@
     speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on");
     showPlayer();
     const p = voicePlan();
-    C.say((only ? "Reading the selection aloud." : "Reading aloud.") + (p.fake ? ` This device has no ${p.kind} English voice, so another voice is pitched ${p.kind === "male" ? "lower" : "higher"}.` : " Press Stop or the button again to stop."), 5000);
+    const missing = p.v && !p.accentOk ? ` This device has no ${p.accent} English voice: ${voiceName(p.v)} (${p.v.lang}) is used. Chrome on a computer has British and American voices only; Microsoft Edge and Android phones also have African ones.` : "";
+    C.say((only ? "Reading the selection aloud." : "Reading aloud.") + (p.fake ? ` This device has no ${p.kind} English voice, so another voice is pitched ${p.kind === "male" ? "lower" : "higher"}.` : missing || " Press Stop or the button again to stop."), missing ? 9000 : 5000);
   }
   function readFrom(n, first) {
     const last = BOOK.pages.length;
@@ -1012,6 +1022,10 @@
     if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", fill);
     kind.addEventListener("change", () => { prefs.vkind = kind.value; prefs.voice = ""; dev.value = ""; savePrefs(); respeak(); });
     const accent = el("select", { class: "input", "aria-label": "Accent" }, ...Object.entries(ACCENTS).map(([k, a]) => el("option", { value: k, text: a[0] + " accent" })));
+    // accents the device has no voice for are marked, so that the same voice for two choices is no surprise
+    const markAccents = () => { [...accent.options].forEach((o) => { o.textContent = ACCENTS[o.value][0] + " accent" + (accentOnDevice(o.value) ? "" : " (not on this device)"); }); };
+    markAccents();
+    if ("speechSynthesis" in window) speechSynthesis.addEventListener("voiceschanged", markAccents);
     accent.value = accentOf();
     accent.addEventListener("change", () => { prefs.vaccent = accent.value; prefs.voice = ""; dev.value = ""; savePrefs(); respeak(); });
     dev.addEventListener("change", () => {
