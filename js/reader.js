@@ -857,8 +857,10 @@
   // such as the Nigerian one on Android, uses it; others fall back to British; natural voices first), else another
   // English voice with its pitch moved towards that kind
   const ACCENTS = {
-    // Ghanaian first (en-GH, or "Ghana" in the voice's name), then other African English voices, then British
-    gh: ["Ghanaian or African", [/en[-_]GH|Ghana/i, /en[-_](NG|KE|ZA|TZ|UG)/i, /en[-_]GB/i, /^en/i]],
+    // Ghanaian first (en-GH, or "Ghana" in the voice's name), then Nigerian (the voice the user chose on 3 November
+    // 2026; Microsoft Edge lists Kenyan before Nigerian, so Nigerian is its own step), then other African English
+    // voices, then British
+    gh: ["Ghanaian or African", [/en[-_]GH|Ghana/i, /en[-_]NG/i, /en[-_](KE|ZA|TZ|UG)/i, /en[-_]GB/i, /^en/i]],
     gb: ["British", [/en[-_]GB/i, /en[-_](IE|AU|NZ)/i, /en[-_]US/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
     us: ["American", [/en[-_]US/i, /en[-_]CA/i, /en[-_]GB/i, /^en/i, /en[-_](NG|GH|KE|ZA|IN)/i]],
     any: ["Any", [/^en/i]] };
@@ -881,7 +883,7 @@
   function accentHas(k, v) {
     if (k === "any") return true;
     const i = ACCENTS[k][1].findIndex((re) => re.test(v.lang + " " + v.name));
-    return i === 0 || (k === "gh" && i === 1);
+    return i === 0 || (k === "gh" && i <= 2);
   }
   const accentOnDevice = (k) => k === "any" || englishVoices().some((v) => accentHas(k, v));
   // a block's text to read; headings and list items end with a full stop, so the voice pauses after them
@@ -934,7 +936,7 @@
     speakBtn.setAttribute("aria-pressed", "true"); speakBtn.classList.add("on");
     showPlayer();
     const p = voicePlan();
-    const missing = p.v && !p.accentOk ? ` This device has no ${p.accent} English voice: ${voiceName(p.v)} (${p.v.lang}) is used. Chrome on a computer has British and American voices only; Microsoft Edge and Android phones also have African ones.` : "";
+    const missing = p.v && !p.accentOk ? ` This device has no ${p.accent} English voice: ${voiceName(p.v)} (${p.v.lang}) is used. Chrome on a computer has British and American voices only; Microsoft Edge on the same computer, and Android phones, also have African ones.` : "";
     C.say((only ? "Reading the selection aloud." : "Reading aloud.") + (p.fake ? ` This device has no ${p.kind} English voice, so another voice is pitched ${p.kind === "male" ? "lower" : "higher"}.` : missing || " Press Stop or the button again to stop."), missing ? 9000 : 5000);
   }
   function readFrom(n, first) {
